@@ -5,7 +5,7 @@ Uma ferramenta simples em Python para extração rápida de informações de har
 O objetivo deste projeto é facilitar o diagnóstico técnico, consolidando dados de hardware e consumo de recursos em um único lugar.
 
 ## Funcionalidades Planejadas
-- [x] Identificação de SO, CPU e Memória RAM (Módulo Base)
+- [x] Identificação de SO, CPU, Memória RAM, Placa-mãe e Placa de vídeo (Módulo Base)
 - [ ] Monitoramento de uso de disco e rede
 - [ ] Exportação de relatórios em JSON/CSV
 - [ ] Interface visual simples (Dashboard)
