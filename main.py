@@ -10,7 +10,6 @@ def main():
 
     if opcao == '1':
         info = get_hardware_info()
-        # lógica de print que você já fez...
     elif opcao == '2':
         start_live_monitor()
     else:
