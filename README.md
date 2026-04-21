@@ -6,7 +6,7 @@ O objetivo deste projeto é facilitar o diagnóstico técnico, consolidando dado
 
 ## Funcionalidades Planejadas
 - [x] Identificação de SO, CPU, Memória RAM, Placa-mãe e Placa de vídeo (Módulo Base)
-- [ ] Monitoramento de uso de disco e rede
+- [x] Monitoramento de uso de CPU e Memoria RAM (v1)
 - [ ] Exportação de relatórios em JSON/CSV
 - [ ] Interface visual simples (Dashboard)
 
