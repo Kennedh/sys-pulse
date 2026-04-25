@@ -29,9 +29,10 @@ def get_hardware_info():
 
     if info["os"] == "Windows":
         try:
-            # Placa-mãe
+            # Placa-mãe (Tratando os espaços duplos chatos do wmic)
             raw_mb = subprocess.check_output("wmic baseboard get product,Manufacturer", shell=True).decode()
-            info['motherboard'] = raw_mb.split('\n')[1].strip()
+            mb_limpa = " ".join(raw_mb.split('\n')[1].split())
+            info['motherboard'] = mb_limpa
 
             # Placa de Vídeo (GPU)
             raw_gpu = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode()
@@ -40,4 +41,17 @@ def get_hardware_info():
             info['motherboard'] = "Não identificada"
             info['gpu'] = "Não identificada"
 
-    return info
+        # TRATANDO AS INFOS: Formatando tudo para uma string bonitona
+    relatorio = (
+        f"\n=== SYS-PULSE: INFO DE HARDWARE ===\n"
+        f"Sist. Operacional: {info.get('os')} {info.get('os_version')}\n"
+        f"Placa Mãe:         {info.get('motherboard', 'N/A')}\n"
+        f"Processador:       {info.get('cpu')}\n"
+        f"Núcleos CPU:       {info.get('cpu_cores_physical')} Físicos / {info.get('cpu_cores_logical')} Lógicos\n"
+        f"Frequência CPU:    {info.get('cpu_freq_current')} (Max: {info.get('cpu_freq_max')})\n"
+        f"Memória RAM:       {info.get('ram_total')}\n"
+        f"Placa de Vídeo:    {info.get('gpu', 'N/A')}\n"
+        f"===================================\n"
+    )
+
+    return relatorio
