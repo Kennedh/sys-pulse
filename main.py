@@ -9,7 +9,7 @@ def main():
     opcao = input("\nEscolha uma opção: ")
 
     if opcao == '1':
-        info = get_hardware_info()
+        print(get_hardware_info())
     elif opcao == '2':
         start_live_monitor()
     else:
