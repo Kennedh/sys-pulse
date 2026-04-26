@@ -50,8 +50,3 @@ class App(ctk.CTk):
 
         # Atualiza a tela com a descrição do hardware
         self.conteudo_label.configure(text=relatorio_real, justify="left", font=ctk.CTkFont(family="Courier", size=14))
-
-# Loop Principal
-if __name__ == "__main__":
-    app = App()
-    app.mainloop()
