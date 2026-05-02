@@ -82,5 +82,5 @@ class App(ctk.CTk):
             self.conteudo_label.configure(text=dados_atuais, justify="left",
                                           font=ctk.CTkFont(family="Courier", size=14))
 
-            # Chama ela mesma de novo após 1000 milissegundos (1 segundo)
-            self.after(1000, self.update_monitor)
+            # Chama ela mesma de novo após 500 milissegundos (meio segundo)
+            self.after(500, self.update_monitor)
