@@ -42,7 +42,7 @@ def get_live_data():
             pass
 
     # Ordenação
-    qt_processes = 5
+    qt_processes = 10
     top_procs = sorted(processos, key=lambda x: x['cpu_percent'], reverse=True)[:qt_processes]
 
     # Montando a "foto" (String formatada) em vez de dar print
