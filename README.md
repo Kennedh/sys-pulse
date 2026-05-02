@@ -14,4 +14,4 @@ O objetivo deste projeto é facilitar o diagnóstico técnico, consolidando dado
 
 ## Tecnologias
 - Python 3.x
-- Bibliotecas: psutil, platform
+- Bibliotecas: psutil, platform, customtkinter
