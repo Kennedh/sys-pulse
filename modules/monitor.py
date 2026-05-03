@@ -18,11 +18,6 @@ def get_live_data():
     ram_usage = psutil.virtual_memory().percent
     storage_usage = psutil.disk_usage('/').percent
 
-    # Barras visuais
-    cpu_bar = "█" * int(cpu_usage / 5) + "░" * (20 - int(cpu_usage / 5))
-    ram_bar = "█" * int(ram_usage / 5) + "░" * (20 - int(ram_usage / 5))
-    storage_bar = "█" * int(storage_usage / 5) + "░" * (20 - int(storage_usage / 5))
-
     # Cálculo de Atividade do Disco (I/O)
     new_disk_io = psutil.disk_io_counters()
     read_speed = (new_disk_io.read_bytes - old_disk_io.read_bytes) / 1024 / 1024
@@ -45,18 +40,16 @@ def get_live_data():
     qt_processes = 10
     top_procs = sorted(processos, key=lambda x: x['cpu_percent'], reverse=True)[:qt_processes]
 
-    # Montando a "foto" (String formatada) em vez de dar print
-    relatorio = (
-        f"Tempo desde o boot: {uptime_str}\n\n"
-        f"CPU Usage: [{cpu_bar}] {cpu_usage}%\n"
-        f"RAM Usage: [{ram_bar}] {ram_usage}%\n"
-        f"Armazenamento: [{storage_bar}] {storage_usage}%\n"
-        f"Ativ. Disco:   Leitura: {read_speed:.1f} MB/s | Gravação: {write_speed:.1f} MB/s\n\n"
-        f"--- TOP PROCESSOS (CPU) ---\n"
-    )
+    # Montando dados para a interface
 
-    for p in top_procs:
-        # Adicionando cada processo ao relatório
-        relatorio += f"{p['name'][:15]:<15} | {p['cpu_percent']}%\n"
+    dados = {
+        "uptime": uptime_str,
+        "cpu_percent": cpu_usage,
+        "ram_percent": ram_usage,
+        "storage_percent": storage_usage,
+        "disk_read_mb": round(read_speed, 1),
+        "disk_write_mb": round(write_speed, 1),
+        "top_processes": top_procs
+    }
 
-    return relatorio
+    return dados
