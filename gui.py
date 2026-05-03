@@ -1,4 +1,6 @@
 import customtkinter as ctk
+from PIL.ImageOps import expand
+
 from modules.hardware import get_hardware_info
 from modules.monitor import get_live_data
 
@@ -53,7 +55,33 @@ class App(ctk.CTk):
         # Variável para controlar se o loop do monitor deve rodar ou parar
         self.monitor_active = False
 
+        # Painel do monitor
+        self.monitor_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+
+        # Titulo do Uptime (Tempo de boot)
+        self.lbl_uptime = ctk.CTkLabel(self.monitor_frame, text=" Uptime: --", font=ctk.CTkFont(size=14))
+        self.lbl_uptime.pack(pady=(0, 20))
+
+        # --- Bloco da CPU ---
+        self.lbl_cpu_text = ctk.CTkLabel(self.monitor_frame, text="CPU Usage: 0%")
+        self.lbl_cpu_text.pack()
+        # ProgressBar
+        self.bar_cpu = ctk.CTkProgressBar(self.monitor_frame, width=300)
+        self.bar_cpu.set(0)
+        self.bar_cpu.pack(pady=(0, 15))
+
+        # --- Bloco da RAM ---
+        self.lbl_ram_text = ctk.CTkLabel(self.monitor_frame, text="RAM Usage: 0%")
+        self.lbl_ram_text.pack()
+        # ProgresBar
+        self.bar_ram = ctk.CTkProgressBar(self.monitor_frame, width=300)
+        self.bar_ram.set(0)
+        self.bar_ram.pack(pady=(0, 15))
+
     def show_hardware(self):
+        self.monitor_frame.pack_forget()
+        self.conteudo_label.pack(pady=50)
+
         # Desliga o monitor em tempo real para ele não sobrescrever a tela
         self.monitor_active = False
 
@@ -66,21 +94,23 @@ class App(ctk.CTk):
         # Liga o interruptor
         self.monitor_active = True
 
-        # Dá o primeiro empurrão no motor (ele vai continuar rodando sozinho pelo .after)
+        # Esconde o label do hardware e mostro o frame do monitor
+        self.conteudo_label.pack_forget()
+        self.monitor_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
         self.update_monitor()
-
-        # Puxa os dados formatados do monitor.py
-        dados_atuais = get_live_data()
-
-        # Atualiza o painel da direita com a fonte espaçada para as barras ficarem alinhadas
-        self.conteudo_label.configure(text=dados_atuais, justify="left", font=ctk.CTkFont(family="Courier", size=14))
 
     def update_monitor(self):
         # Só atualiza a tela se o botão Monitor Live estiver selecionado (flag True)
         if self.monitor_active:
-            dados_atuais = get_live_data()
-            self.conteudo_label.configure(text=dados_atuais, justify="left",
-                                          font=ctk.CTkFont(family="Courier", size=14))
+            dados = get_live_data() # Retorna o dicionario de dados do modulo monitor
+
+            # Atualiza os Textos e barras
+            self.lbl_uptime.configure(text=f"Tempo desde o boot: {dados['uptime']}")
+            self.lbl_cpu_text.configure(text=f"CPU Usage: {dados['cpu_percent']}%")
+            self.bar_cpu.set(dados['cpu_percent']/100)
+            self.lbl_ram_text.configure(text=f"RAM Usage: {dados['ram_percent']}%")
+            self.bar_ram.set(dados['ram_percent']/100)
 
             # Chama ela mesma de novo após 500 milissegundos (meio segundo)
             self.after(500, self.update_monitor)
