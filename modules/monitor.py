@@ -16,7 +16,26 @@ def get_live_data():
     # Coleta de dados em tempo real
     cpu_usage = psutil.cpu_percent(interval=None)
     ram_usage = psutil.virtual_memory().percent
-    storage_usage = psutil.disk_usage('/').percent
+    # Coleta inteligente de todas as partições (Discos/SSDs)
+
+    storage_usage = []
+    # all=False ignora partições virtuais/vazias do sistema
+    for partition in psutil.disk_partitions(all=False):
+        try:
+            # Lê o uso do ponto de montagem (ex: "C:\", "D:\")
+            usage = psutil.disk_usage(partition.mountpoint)
+
+            # Limpa o nome (tira as barras) para ficar visualmente bonito, ex: "C:"
+            nome_disco = partition.device.replace('\\', '')
+
+            storage_usage.append({
+                "disco": nome_disco,
+                "percent": usage.percent
+            })
+        except Exception:
+            # O try/except é vital no Windows. Se houver um leitor de cartão ou
+            # drive de DVD vazio, o SO bloqueia a leitura. O except ignora e pula pro próximo.
+            continue
 
     # Cálculo de Atividade do Disco (I/O)
     new_disk_io = psutil.disk_io_counters()
