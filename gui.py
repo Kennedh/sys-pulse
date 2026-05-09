@@ -78,6 +78,32 @@ class App(ctk.CTk):
         self.bar_ram.set(0)
         self.bar_ram.pack(pady=(0, 15))
 
+        # --- Bloco de Armazenamento Dinâmico ---
+        # Título da seção
+        self.lbl_storage_title = ctk.CTkLabel(self.monitor_frame, text="--- Armazenamento ---",font=ctk.CTkFont(weight="bold"))
+        self.lbl_storage_title.pack(pady=(10, 5))
+
+        # Dicionário para guardar as referências das barras e labels de cada disco
+        self.disk_widgets = {}
+
+        # Fazemos uma leitura inicial rápida só para descobrir quantos discos a máquina tem
+        dados_iniciais = get_live_data()
+
+        for disco_info in dados_iniciais["storage_percent"]:
+            nome_disco = disco_info["disco"]
+
+            # Cria a Label para este disco específico
+            lbl = ctk.CTkLabel(self.monitor_frame, text=f"Disco {nome_disco} Usage: 0%")
+            lbl.pack()
+
+            # Cria a ProgressBar para este disco específico
+            bar = ctk.CTkProgressBar(self.monitor_frame, width=300)
+            bar.set(0)
+            bar.pack(pady=(0, 15))
+
+            # Guarda os componentes no dicionário usando o nome do disco como chave (ex: "C:")
+            self.disk_widgets[nome_disco] = {"label": lbl, "bar": bar}
+
     def show_hardware(self):
         self.monitor_frame.pack_forget()
         self.conteudo_label.pack(pady=50)
@@ -101,16 +127,30 @@ class App(ctk.CTk):
         self.update_monitor()
 
     def update_monitor(self):
-        # Só atualiza a tela se o botão Monitor Live estiver selecionado (flag True)
+        # Só atualiza a tela se o botão Monitor Live estiver selecionado
         if self.monitor_active:
-            dados = get_live_data() # Retorna o dicionario de dados do modulo monitor
+            dados = get_live_data()
 
-            # Atualiza os Textos e barras
+            # Atualiza os Textos (CPU e RAM)
             self.lbl_uptime.configure(text=f"Tempo desde o boot: {dados['uptime']}")
             self.lbl_cpu_text.configure(text=f"CPU Usage: {dados['cpu_percent']}%")
-            self.bar_cpu.set(dados['cpu_percent']/100)
             self.lbl_ram_text.configure(text=f"RAM Usage: {dados['ram_percent']}%")
-            self.bar_ram.set(dados['ram_percent']/100)
 
-            # Chama ela mesma de novo após 500 milissegundos (meio segundo)
+            # Atualiza as Barras (CPU e RAM)
+            self.bar_cpu.set(dados['cpu_percent'] / 100)
+            self.bar_ram.set(dados['ram_percent'] / 100)
+
+            # --- ATUALIZA OS DISCOS DINAMICAMENTE ---
+            for disco_info in dados["storage_percent"]:
+                nome = disco_info["disco"]
+                percentual = disco_info["percent"]
+
+                # Verifica se o disco existe no nosso dicionário de telas
+                if nome in self.disk_widgets:
+                    # Atualiza o texto do disco correspondente
+                    self.disk_widgets[nome]["label"].configure(text=f"Disco {nome} Usage: {percentual}%")
+                    # Atualiza a barra do disco correspondente
+                    self.disk_widgets[nome]["bar"].set(percentual / 100)
+
+            # Chama ela mesma de novo após 500 milissegundos
             self.after(500, self.update_monitor)
