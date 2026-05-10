@@ -1,5 +1,4 @@
 import customtkinter as ctk
-from PIL.ImageOps import expand
 
 from modules.hardware import get_hardware_info
 from modules.monitor import get_live_data
@@ -52,11 +51,14 @@ class App(ctk.CTk):
         # Posicionando o texto. Em vez de usar o grid vou usar o pack para ficar centralizado
         self.conteudo_label.pack(pady=50)
 
+        # Painel do monitor
+        self.monitor_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+
         # Variável para controlar se o loop do monitor deve rodar ou parar
         self.monitor_active = False
 
-        # Painel do monitor
-        self.monitor_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        # Lista dinâmica de discos que o usuário quer esconder
+        self.discos_ignorados = []
 
         # Titulo do Uptime (Tempo de boot)
         self.lbl_uptime = ctk.CTkLabel(self.monitor_frame, text=" Uptime: --", font=ctk.CTkFont(size=14))
@@ -78,31 +80,56 @@ class App(ctk.CTk):
         self.bar_ram.set(0)
         self.bar_ram.pack(pady=(0, 15))
 
-        # --- Bloco de Armazenamento Dinâmico ---
         # Título da seção
-        self.lbl_storage_title = ctk.CTkLabel(self.monitor_frame, text="--- Armazenamento ---",font=ctk.CTkFont(weight="bold"))
+        self.lbl_storage_title = ctk.CTkLabel(self.monitor_frame, text="--- Armazenamento ---",
+                                              font=ctk.CTkFont(weight="bold"))
         self.lbl_storage_title.pack(pady=(10, 5))
 
-        # Dicionário para guardar as referências das barras e labels de cada disco
+        # FRAME PARA OS CHECKBOXES DO FILTRO
+        self.filter_frame = ctk.CTkFrame(self.monitor_frame, fg_color="transparent")
+        self.filter_frame.pack(pady=(0, 10))
+
         self.disk_widgets = {}
 
-        # Fazemos uma leitura inicial rápida só para descobrir quantos discos a máquina tem
-        dados_iniciais = get_live_data()
+        # Puxa os dados SEM FILTRO inicial para descobrir TODOS os discos conectados
+        dados_iniciais = get_live_data([])
 
         for disco_info in dados_iniciais["storage_percent"]:
             nome_disco = disco_info["disco"]
 
-            # Cria a Label para este disco específico
-            lbl = ctk.CTkLabel(self.monitor_frame, text=f"Disco {nome_disco} Usage: 0%")
+            # Cria a variável que sabe se o checkbox está marcado ou não
+            var_checkbox = ctk.StringVar(value="on")  # "on" = mostrar, "off" = esconder
+
+            # Cria o Checkbox
+            chk = ctk.CTkCheckBox(
+                self.filter_frame,
+                text=nome_disco,
+                variable=var_checkbox,
+                onvalue="on",
+                offvalue="off",
+                command=lambda d=nome_disco, v=var_checkbox: self.toggle_disk(d, v)
+            )
+            chk.pack(side="left", padx=0)
+
+            # Cria um Frame agrupador só para este disco
+            disk_frame = ctk.CTkFrame(self.monitor_frame, fg_color="transparent")
+            disk_frame.pack()
+
+            # Cria a Label dentro deste disk_frame
+            lbl = ctk.CTkLabel(disk_frame, text=f"Disco {nome_disco} Usage: 0%")
             lbl.pack()
 
-            # Cria a ProgressBar para este disco específico
-            bar = ctk.CTkProgressBar(self.monitor_frame, width=300)
+            # Cria a Barra dentro deste disk_frame
+            bar = ctk.CTkProgressBar(disk_frame, width=300)
             bar.set(0)
             bar.pack(pady=(0, 15))
 
-            # Guarda os componentes no dicionário usando o nome do disco como chave (ex: "C:")
-            self.disk_widgets[nome_disco] = {"label": lbl, "bar": bar}
+            # Guarda no dicionário com a referência ao frame
+            self.disk_widgets[nome_disco] = {
+                "frame": disk_frame,
+                "label": lbl,
+                "bar": bar
+            }
 
     def show_hardware(self):
         self.monitor_frame.pack_forget()
@@ -129,7 +156,7 @@ class App(ctk.CTk):
     def update_monitor(self):
         # Só atualiza a tela se o botão Monitor Live estiver selecionado
         if self.monitor_active:
-            dados = get_live_data()
+            dados = get_live_data(self.discos_ignorados)
 
             # Atualiza os Textos (CPU e RAM)
             self.lbl_uptime.configure(text=f"Tempo desde o boot: {dados['uptime']}")
@@ -154,3 +181,19 @@ class App(ctk.CTk):
 
             # Chama ela mesma de novo após 500 milissegundos
             self.after(500, self.update_monitor)
+
+    def toggle_disk(self, disco, var_checkbox):
+        if var_checkbox.get() == "off":
+            # O usuário desmarcou a caixinha! Vamos ignorar esse disco.
+            if disco not in self.discos_ignorados:
+                self.discos_ignorados.append(disco)  # Adiciona na blacklist
+
+            # Esconde o Frame inteiro da tela (Some a label e a barra)
+            self.disk_widgets[disco]["frame"].pack_forget()
+        else:
+            # O usuário marcou de novo! Vamos voltar a monitorar.
+            if disco in self.discos_ignorados:
+                self.discos_ignorados.remove(disco)  # Tira da blacklist
+
+            # Mostra o Frame na tela de novo
+            self.disk_widgets[disco]["frame"].pack()
