@@ -4,7 +4,11 @@ from datetime import datetime
 # Essa variável fica de fora da função para não ser zerada toda vez que a interface pedir dados
 old_disk_io = psutil.disk_io_counters()
 
-def get_live_data():
+def get_live_data(discos_ignorados=None):
+    # Filtro para ignorar discos
+    if discos_ignorados is None:
+        discos_ignorados = []
+
     global old_disk_io # Avisa a função para usar a variável lá de cima
     num_cores = psutil.cpu_count()
 
@@ -16,9 +20,10 @@ def get_live_data():
     # Coleta de dados em tempo real
     cpu_usage = psutil.cpu_percent(interval=None)
     ram_usage = psutil.virtual_memory().percent
-    # Coleta inteligente de todas as partições (Discos/SSDs)
 
+    # Coleta inteligente de todas as partições (Discos/SSDs)
     storage_usage = []
+
     # all=False ignora partições virtuais/vazias do sistema
     for partition in psutil.disk_partitions(all=False):
         try:
@@ -27,6 +32,10 @@ def get_live_data():
 
             # Limpa o nome (tira as barras) para ficar visualmente bonito, ex: "C:"
             nome_disco = partition.device.replace('\\', '')
+
+            # Ignora o disco caso esteja na lista
+            if nome_disco in discos_ignorados:
+                continue
 
             storage_usage.append({
                 "disco": nome_disco,
