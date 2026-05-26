@@ -51,8 +51,18 @@ class App(ctk.CTk):
         # Posicionando o texto. Em vez de usar o grid vou usar o pack para ficar centralizado
         self.conteudo_label.pack(pady=50)
 
-        # Painel do monitor
-        self.monitor_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        # Sistema de abas dentro live monitor
+        self.monitor_tabs = ctk.CTkTabview(self.main_frame)
+
+        # Por hora duas abas
+        self.tab_recursos = self.monitor_tabs.add("Recursos")
+        self.tab_processos = self.monitor_tabs.add("Processos")
+
+        # Como eu tinha feito tudo num frame chamado self.monitor_frame
+        # para não precisar renomear todos os widgets de CPU/RAM/Disco agora,
+        # fiz a variável antiga apontar para a aba nova
+
+        self.monitor_frame = self.tab_recursos
 
         # Variável para controlar se o loop do monitor deve rodar ou parar
         self.monitor_active = False
@@ -132,6 +142,11 @@ class App(ctk.CTk):
             }
 
     def show_hardware(self):
+        # Esconde as abas
+        self.monitor_tabs.pack_forget()
+        self.conteudo_label.pack(pady=50)
+        self.monitor_active = False
+
         self.monitor_frame.pack_forget()
         self.conteudo_label.pack(pady=50)
 
@@ -144,12 +159,11 @@ class App(ctk.CTk):
         self.conteudo_label.configure(text=relatorio_real, justify="left", font=ctk.CTkFont(family="Courier", size=14))
 
     def show_monitor(self):
-        # Liga o interruptor
         self.monitor_active = True
-
-        # Esconde o label do hardware e mostro o frame do monitor
         self.conteudo_label.pack_forget()
-        self.monitor_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Mostra o sistema de abas na tela
+        self.monitor_tabs.pack(fill="both", expand=True, padx=20, pady=0)
 
         self.update_monitor()
 
