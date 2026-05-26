@@ -59,14 +59,21 @@ def get_live_data(discos_ignorados=None):
             continue
         try:
             cpu_val = proc.cpu_percent(interval=None) / num_cores
-            if cpu_val > 0.0:
-                processos.append({'name': proc.info['name'], 'cpu_percent': round(cpu_val, 1)})
+            ram_val = proc.memory_percent()
+
+            # Sem o 'if' que tinha antes que considera processos com cpu > 0.0
+            # Agora coleta TODOS os processos do Windows (Uns 200 a 300 por ai)
+            processos.append({
+                'name': proc.info['name'],
+                'cpu_percent': round(cpu_val, 1),
+                'ram_percent': round(ram_val, 1)
+            })
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    # Ordenação
-    qt_processes = 10
-    top_procs = sorted(processos, key=lambda x: x['cpu_percent'], reverse=True)[:qt_processes]
+    # Ordenação Dupla: (CPU primeiro, RAM em caso de empate)
+    qt_processes = 30 # Como eu não quero que o CTK se trave todoo com 200 processos eu limito
+    top_procs = sorted(processos, key=lambda x: (x['cpu_percent'], x['ram_percent']), reverse=True)[:qt_processes]
 
     # Montando dados para a interface
 
