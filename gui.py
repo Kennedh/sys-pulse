@@ -85,6 +85,7 @@ class App(ctk.CTk):
         # --- Bloco da RAM ---
         self.lbl_ram_text = ctk.CTkLabel(self.monitor_frame, text="RAM Usage: 0%")
         self.lbl_ram_text.pack()
+
         # ProgresBar
         self.bar_ram = ctk.CTkProgressBar(self.monitor_frame, width=300)
         self.bar_ram.set(0)
@@ -141,16 +142,42 @@ class App(ctk.CTk):
                 "bar": bar
             }
 
+        # --- ABA DE PROCESSOS (Tabela Dinâmica) ---
+        self.scroll_processos = ctk.CTkScrollableFrame(self.tab_processos)
+        self.scroll_processos.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Faz a primeira coluna (Nome) expandir para empurrar CPU e RAM para a direita
+        self.scroll_processos.grid_columnconfigure(0, weight=1)
+
+        # Cabeçalhos
+        ctk.CTkLabel(self.scroll_processos, text="Nome do Processo", font=ctk.CTkFont(weight="bold")).grid(row=0,
+                                                                                                           column=0,
+                                                                                                           sticky="w",
+                                                                                                           padx=10,
+                                                                                                           pady=5)
+        ctk.CTkLabel(self.scroll_processos, text="CPU (%)", font=ctk.CTkFont(weight="bold")).grid(row=0, column=1,
+                                                                                                  padx=10, pady=5)
+        ctk.CTkLabel(self.scroll_processos, text="RAM (%)", font=ctk.CTkFont(weight="bold")).grid(row=0, column=2,
+                                                                                                  padx=10, pady=5)
+
+        # Criando 30 linhas vazias guardadas em uma lista
+        self.process_widgets = []
+        for i in range(30):
+            lbl_name = ctk.CTkLabel(self.scroll_processos, text="--")
+            lbl_cpu = ctk.CTkLabel(self.scroll_processos, text="--")
+            lbl_ram = ctk.CTkLabel(self.scroll_processos, text="--")
+
+            # i+1 porque a row=0 é do cabeçalho
+            lbl_name.grid(row=i + 1, column=0, sticky="w", padx=10, pady=2)
+            lbl_cpu.grid(row=i + 1, column=1, padx=10, pady=2)
+            lbl_ram.grid(row=i + 1, column=2, padx=10, pady=2)
+
+            self.process_widgets.append({"name": lbl_name, "cpu": lbl_cpu, "ram": lbl_ram})
+
     def show_hardware(self):
         # Esconde as abas
         self.monitor_tabs.pack_forget()
         self.conteudo_label.pack(pady=50)
-        self.monitor_active = False
-
-        self.monitor_frame.pack_forget()
-        self.conteudo_label.pack(pady=50)
-
-        # Desliga o monitor em tempo real para ele não sobrescrever a tela
         self.monitor_active = False
 
         relatorio_real = get_hardware_info()
@@ -192,6 +219,12 @@ class App(ctk.CTk):
                     self.disk_widgets[nome]["label"].configure(text=f"Disco {nome} Usage: {percentual}%")
                     # Atualiza a barra do disco correspondente
                     self.disk_widgets[nome]["bar"].set(percentual / 100)
+
+            # Prenchimento das labels com os processos vindos do monitor
+            for i, processo in enumerate(dados["top_processes"]):
+                self.process_widgets[i]["name"].configure(text=f"{processo['name']}")
+                self.process_widgets[i]["cpu"].configure(text=f"{processo['cpu_percent']}")
+                self.process_widgets[i]["ram"].configure(text=f"{processo['ram_percent']}")
 
             # Chama ela mesma de novo após 500 milissegundos
             self.after(500, self.update_monitor)
