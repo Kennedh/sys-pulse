@@ -1,2 +1,2 @@
 psutil
-customtkinter
+pyside6
