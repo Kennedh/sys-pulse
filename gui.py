@@ -61,6 +61,9 @@ class App(QMainWindow):
                                             background-color: #536bc2;
                                         }
                                     """)
+
+        self.btn_hardware.clicked.connect(self.mostrar_hardware)
+
         self.btn_monitor = QPushButton("LIVE MONITOR")
         self.btn_monitor.setStyleSheet("""
                                         QPushButton {
@@ -76,18 +79,50 @@ class App(QMainWindow):
                                     """)
 
 
+        # Frame da direita onde vou colocar os módulos
+        self.main_frame = QFrame()
+        self.main_frame.setStyleSheet("background-color: #121212;")
+
+        # Frame para o conteudo dos modulos dentro main_frame
+        self.frame_modulos = QVBoxLayout(self.main_frame)
+
+        # Label do frame da direita
+        self.select_mdl = QLabel("Selecione um módulo no menu lateral.")
+        self.select_mdl.setStyleSheet("""
+                                              QLabel {
+                                                  color: white;
+                                                  font-weight: bold;
+                                                  font-size: 20px;
+                                              }
+                                              """)
+        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # ==== COLOCANDO O CONTEUDO NA TELA ====
+
         # Colocar os botões e a label dentro frame vertical
         self.frame_botoes.addWidget(self.logo_label)
         self.frame_botoes.addWidget(self.btn_hardware)
         self.frame_botoes.addWidget(self.btn_monitor)
 
-        # Empurra tudo para cima
-        self.frame_botoes.addStretch()
+        self.frame_botoes.addStretch() # Empurra tudo para cima
 
-        # Frame da direita onde vou colocar os módulos
-        self.main_frame = QFrame()
-        self.main_frame.setStyleSheet("background-color: #121212;")
+        # Coloca a label no frame dos modulos
+        self.frame_modulos.addWidget(self.select_mdl)
 
-        # Agora para colocar os dois frames na tela
+        self.frame_modulos.addStretch() # Empurra tudo para cima
+
+        # Agora para colocar os dois frames
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.main_frame)
+
+    def mostrar_hardware(self):
+        self.select_mdl.setStyleSheet("""
+                                      QLabel {
+                                          color: white;
+                                          font-weight: bold;
+                                          font-size: 16px;
+                                          font-family: Consolas, monospace;
+                                      }
+                                      """)
+        self.select_mdl.setText(f"{get_hardware_info()}")
+        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignLeft)
