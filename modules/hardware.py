@@ -10,7 +10,9 @@ def get_hardware_info():
     info["os_version"] = platform.release()
 
     # Infos da CPU
-    info["cpu"] = platform.processor()
+    cpu_raw = subprocess.check_output("wmic cpu get name", shell=True).decode()
+    cpu_raw = " ".join(cpu_raw.split('\n')[1].split())
+    info["cpu"] = cpu_raw
     freq = psutil.cpu_freq()
     if freq:
         info["cpu_freq_current"] = f"{round(freq.current / 1000, 2)} GHz"
@@ -43,7 +45,7 @@ def get_hardware_info():
 
         # TRATANDO AS INFOS: Formatando tudo para uma string bonitona
     relatorio = (
-        f"\n=== SYS-PULSE: INFO DE HARDWARE ===\n"
+        f"\nINFOMAÇÕES DE HARDWARE\n\n"
         f"Sist. Operacional: {info.get('os')} {info.get('os_version')}\n"
         f"Placa Mãe:         {info.get('motherboard', 'N/A')}\n"
         f"Processador:       {info.get('cpu')}\n"
@@ -51,7 +53,6 @@ def get_hardware_info():
         f"Frequência CPU:    {info.get('cpu_freq_current')} (Max: {info.get('cpu_freq_max')})\n"
         f"Memória RAM:       {info.get('ram_total')}\n"
         f"Placa de Vídeo:    {info.get('gpu', 'N/A')}\n"
-        f"===================================\n"
     )
 
     return relatorio
