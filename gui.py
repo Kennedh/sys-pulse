@@ -2,7 +2,8 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLa
 from PySide6.QtCore import Qt
 
 from modules.hardware import get_hardware_info
-from modules.monitor import get_live_data
+from PySide6.QtCore import QThread
+from modules.monitor import MonitorWorker
 
 class App(QMainWindow):
     def __init__(self):
@@ -115,6 +116,24 @@ class App(QMainWindow):
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.main_frame)
 
+        # === LIVE MONITOR ===
+
+        # Criação de um Thread especifico para o monitor
+        self.thread_monitor = QThread()
+        self.worker_monitor = MonitorWorker()
+
+        # Mover o worker de dados do monitor para dentro do thread
+        self.worker_monitor.moveToThread(self.thread_monitor)
+
+        # Quando a thread iniciar, ela deve rodar o método run do worker
+        self.thread_monitor.started.connect(self.worker_monitor.run)
+
+        # Pegar os dados atualizados e jogar na tela
+        self.worker_monitor.dados_atualizados.connect(self.atualizar_tela_monitor)
+
+        # Adição de evento ao botão
+        self.btn_monitor.clicked.connect(self.mostrar_monitor)
+
     def mostrar_hardware(self):
         self.select_mdl.setStyleSheet("""
                                       QLabel {
@@ -126,3 +145,19 @@ class App(QMainWindow):
                                       """)
         self.select_mdl.setText(f"{get_hardware_info()}")
         self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+    def atualizar_tela_monitor(self, dados):
+        self.select_mdl.setStyleSheet("""
+                                              QLabel {
+                                                  color: white;
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  font-family: Consolas, monospace;
+                                              }
+                                              """)
+        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.select_mdl.setText(f"Uso da CPU: {dados['cpu_percent']}%\n"
+                                f"Uso da RAM: {dados['ram_percent']}%")
+
+    def mostrar_monitor(self):
+        self.thread_monitor.start()
