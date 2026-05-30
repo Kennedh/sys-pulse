@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton, QStackedWidget
 from PySide6.QtCore import Qt
 
 from modules.hardware import get_hardware_info
@@ -87,16 +87,12 @@ class App(QMainWindow):
         # Frame para o conteudo dos modulos dentro main_frame
         self.frame_modulos = QVBoxLayout(self.main_frame)
 
-        # Label do frame da direita
-        self.select_mdl = QLabel("Selecione um módulo no menu lateral.")
-        self.select_mdl.setStyleSheet("""
-                                              QLabel {
-                                                  color: white;
-                                                  font-weight: bold;
-                                                  font-size: 20px;
-                                              }
-                                              """)
-        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Onde ficaram as janelas de cada modulo
+        self.telas = QStackedWidget()
+
+        # Label do frame da direita utilizando o sistema de "baralho" no qual vai empilhando as telas
+
+        self.telas = QStackedWidget()
 
         # ==== COLOCANDO O CONTEUDO NA TELA ====
 
@@ -108,7 +104,58 @@ class App(QMainWindow):
         self.frame_botoes.addStretch() # Empurra tudo para cima
 
         # Coloca a label no frame dos modulos
-        self.frame_modulos.addWidget(self.select_mdl)
+        self.frame_modulos.addWidget(self.telas)
+
+        # Criando as páginas para os modulos
+        self.tela_inicial = QWidget()
+        self.tela_hardware = QWidget()
+        self.tela_monitor = QWidget()
+
+        # Colocando no baralho
+        self.telas.addWidget(self.tela_inicial)  # Carta 0
+        self.telas.addWidget(self.tela_hardware)  # Carta 1
+        self.telas.addWidget(self.tela_monitor)  # Carta 2
+
+        # Tela Incial
+        layout_inicial = QVBoxLayout(self.tela_inicial)
+        label_inicial = QLabel("Selecione um módulo no menu lateral.")
+        label_inicial.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label_inicial.setStyleSheet("""
+                                                      QLabel {
+                                                          color: white;
+                                                          font-weight: bold;
+                                                          font-size: 20px;
+                                                      }
+                                                      """)
+        layout_inicial.addWidget(label_inicial)
+
+        # Tela do Hardware
+        layout_hardware = QVBoxLayout(self.tela_hardware)
+        self.label_hardware = QLabel()
+        self.label_hardware.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.label_hardware.setStyleSheet("""
+                                              QLabel {
+                                                  color: white;
+                                                  font-weight: bold;
+                                                  font-size: 16px;
+                                                  font-family: Consolas, monospace;
+                                              }
+                                              """)
+        layout_hardware.addWidget(self.label_hardware)
+
+        # Tela do Monitor
+        layout_monitor = QVBoxLayout(self.tela_monitor)
+        self.label_monitor = QLabel()
+        self.label_monitor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_monitor.setStyleSheet("""
+                                                      QLabel {
+                                                          color: white;
+                                                          font-weight: bold;
+                                                          font-size: 16px;
+                                                          font-family: Consolas, monospace;
+                                                      }
+                                                      """)
+        layout_monitor.addWidget(self.label_monitor)
 
         self.frame_modulos.addStretch() # Empurra tudo para cima
 
@@ -135,29 +182,13 @@ class App(QMainWindow):
         self.btn_monitor.clicked.connect(self.mostrar_monitor)
 
     def mostrar_hardware(self):
-        self.select_mdl.setStyleSheet("""
-                                      QLabel {
-                                          color: white;
-                                          font-weight: bold;
-                                          font-size: 16px;
-                                          font-family: Consolas, monospace;
-                                      }
-                                      """)
-        self.select_mdl.setText(f"{get_hardware_info()}")
-        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.telas.setCurrentIndex(1)
+        self.label_hardware.setText(f"{get_hardware_info()}")
 
     def atualizar_tela_monitor(self, dados):
-        self.select_mdl.setStyleSheet("""
-                                              QLabel {
-                                                  color: white;
-                                                  font-weight: bold;
-                                                  font-size: 16px;
-                                                  font-family: Consolas, monospace;
-                                              }
-                                              """)
-        self.select_mdl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.select_mdl.setText(f"Uso da CPU: {dados['cpu_percent']}%\n"
-                                f"Uso da RAM: {dados['ram_percent']}%")
+        self.label_monitor.setText(f"Uso da CPU: {dados['cpu_percent']}%\n"
+                                   f"Uso da RAM: {dados['ram_percent']}%")
 
     def mostrar_monitor(self):
+        self.telas.setCurrentIndex(2)
         self.thread_monitor.start()
