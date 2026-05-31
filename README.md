@@ -13,12 +13,14 @@ O projeto está passando por uma reestruturação arquitetural profunda. A migra
 ### O que já foi implementado na nova versão:
 * [x] **Nova Arquitetura Base:** Separação estrita entre o Motor da Aplicação (`main.py` / `QApplication`) e o Design da Interface (`gui.py` / `QMainWindow`).
 * [x] **Gerenciamento de Layouts:** Adoção de `QHBoxLayout` e `QVBoxLayout` para uma interface responsiva e organizada.
-* [x] **Design e QSS:** Estilização usando o CSS nativo do Qt, garantindo alinhamento perfeito de relatórios com fontes *monospace*.
-* [x] **Módulo de Hardware:** Leitura de componentes otimizada via `subprocess` e `wmic`, conectada reativamente à interface via *Signals and Slots*.
+* [x] **Módulo de Hardware:** Leitura de componentes otimizada via `subprocess` e `wmic`.
+* [x] **Threading (Concorrência):** Coleta de dados pesados (`psutil`) isolada em um *Worker Thread* em segundo plano (`QThread`), garantindo que a *Main Thread* da interface rode sem congelamentos.
+* [x] **Navegação Assíncrona:** Implementação de `QStackedWidget` para alternância fluida entre módulos (Hardware e Monitor).
+* [x] **Monitoramento Visual:** Uso de Sinais e Slots para atualizar `QProgressBar` (CPU/RAM) e rótulos de I/O de disco em tempo real.
 
 ### Próximos Passos:
-* [ ] **Módulo Monitor Live:** Recriação da tabela dinâmica de processos na nova engine.
-* [ ] **Threading (Concorrência):** Isolar a coleta de dados pesados do `psutil` em um *Worker Thread* em segundo plano, garantindo que a *Main Thread* da interface rode a 60 FPS sem congelamentos.
+* [ ] **Tabela de Processos:** Renderização otimizada de todos os processos do sistema utilizando o modelo MVC (Model-View) do Qt.
+* [ ] **Armazenamento:** Exibição do espaço de uso e partições dos discos locais.
 
 ## Tecnologias
 - **Linguagem:** Python 3.x
