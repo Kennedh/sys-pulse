@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton, QStackedWidget
+from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton,
+                               QStackedWidget, QProgressBar)
 from PySide6.QtCore import Qt
 
 from modules.hardware import get_hardware_info
@@ -145,17 +146,86 @@ class App(QMainWindow):
 
         # Tela do Monitor
         layout_monitor = QVBoxLayout(self.tela_monitor)
-        self.label_monitor = QLabel()
-        self.label_monitor.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_monitor.setStyleSheet("""
+
+        # Tempo de boot
+        self.label_uptime = QLabel()
+        self.label_uptime.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_uptime.setStyleSheet("""
                                                       QLabel {
                                                           color: white;
                                                           font-weight: bold;
-                                                          font-size: 16px;
-                                                          font-family: Consolas, monospace;
+                                                          font-size: 18px;
+                                                          font: monospace;
                                                       }
                                                       """)
-        layout_monitor.addWidget(self.label_monitor)
+        self.label_uptime.setFixedHeight(50)
+        layout_monitor.addWidget(self.label_uptime)
+
+        # CPU Label e Progress Bar
+        self.label_cpu = QLabel()
+        self.label_cpu.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_cpu.setStyleSheet("""
+                                                              QLabel {
+                                                                  color: white;
+                                                                  font-weight: bold;
+                                                                  font-size: 16px;
+                                                                  font-family: Consolas, monospace;
+                                                              }
+                                                              """)
+        layout_monitor.addWidget(self.label_cpu)
+
+        self.barra_cpu = QProgressBar()
+        self.barra_cpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
+        self.barra_cpu.setValue(0)
+        layout_monitor.addWidget(self.barra_cpu)
+
+        # RAM Label e Progress Bar
+        self.label_ram = QLabel()
+        self.label_ram.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_ram.setStyleSheet("""
+                                                                      QLabel {
+                                                                          color: white;
+                                                                          font-weight: bold;
+                                                                          font-size: 16px;
+                                                                          font-family: Consolas, monospace;
+                                                                      }
+                                                                      """)
+        layout_monitor.addWidget(self.label_ram)
+
+        self.barra_ram = QProgressBar()
+        self.barra_ram.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
+        self.barra_ram.setValue(0)
+        layout_monitor.addWidget(self.barra_ram)
+
+        #Discos
+        self.label_discos = QLabel()
+        self.label_discos.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_discos.setStyleSheet("""
+                                                                                      QLabel {
+                                                                                          color: white;
+                                                                                          font-weight: bold;
+                                                                                          font-size: 16px;
+                                                                                          font-family: Consolas, monospace;
+                                                                                      }
+                                                                                      """)
+        self.label_discos.setText("DISCOS")
+        self.label_discos.setFixedHeight(20)
+        layout_monitor.addWidget(self.label_discos)
+
+        # Velocidade de Leitura e Escrita dos Discos
+        self.label_disk_speed = QLabel()
+        self.label_disk_speed.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_disk_speed.setStyleSheet("""
+                                                                              QLabel {
+                                                                                  color: white;
+                                                                                  font-weight: bold;
+                                                                                  font-size: 16px;
+                                                                                  font-family: Consolas, monospace;
+                                                                              }
+                                                                              """)
+        layout_monitor.addWidget(self.label_disk_speed)
+
+        layout_monitor.addStretch()
 
         self.frame_modulos.addStretch() # Empurra tudo para cima
 
@@ -186,8 +256,12 @@ class App(QMainWindow):
         self.label_hardware.setText(f"{get_hardware_info()}")
 
     def atualizar_tela_monitor(self, dados):
-        self.label_monitor.setText(f"Uso da CPU: {dados['cpu_percent']}%\n"
-                                   f"Uso da RAM: {dados['ram_percent']}%")
+        self.label_uptime.setText(f"Tempo desde o Boot: {dados['uptime']}")
+        self.label_cpu.setText(f"Uso de CPU: {dados['cpu_percent']}%")
+        self.barra_cpu.setValue(int(dados['cpu_percent']))
+        self.label_ram.setText(f"Uso de RAM: {dados['ram_percent']}%")
+        self.barra_ram.setValue(int(dados['ram_percent']))
+        self.label_disk_speed.setText(f"Leitura: {dados['disk_read_mb']} MB/s Escrita: {dados['disk_write_mb']} MB/s")
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
