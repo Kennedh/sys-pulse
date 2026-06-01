@@ -17,10 +17,11 @@ O projeto está passando por uma reestruturação arquitetural profunda. A migra
 * [x] **Threading (Concorrência):** Coleta de dados pesados (`psutil`) isolada em um *Worker Thread* em segundo plano (`QThread`), garantindo que a *Main Thread* da interface rode sem congelamentos.
 * [x] **Navegação Assíncrona:** Implementação de `QStackedWidget` para alternância fluida entre módulos (Hardware e Monitor).
 * [x] **Monitoramento Visual:** Uso de Sinais e Slots para atualizar `QProgressBar` (CPU/RAM) e rótulos de I/O de disco em tempo real.
+* [x] **Armazenamento Dinâmico:** Exibição em tempo real do espaço de uso (Total, Livre, Utilizado) de múltiplas partições, utilizando um sistema de cache de dicionários para reciclar instâncias de `QLabel` e `QProgressBar`, prevenindo vazamentos de memória (memory leaks).
 
 ### Próximos Passos:
-* [ ] **Tabela de Processos:** Renderização otimizada de todos os processos do sistema utilizando o modelo MVC (Model-View) do Qt.
-* [ ] **Armazenamento:** Exibição do espaço de uso e partições dos discos locais.
+* [ ] **Monitoramento de GPU:** Integração de leitura de carga e memória da placa de vídeo ao painel de monitoramento.
+* [ ] **Tabela de Processos:** Renderização otimizada de todos os processos do sistema utilizando o modelo MVC (Model-View) nativo do Qt.
 
 ## Tecnologias
 - **Linguagem:** Python 3.x
