@@ -68,16 +68,16 @@ class App(QMainWindow):
 
         self.btn_monitor = QPushButton("LIVE MONITOR")
         self.btn_monitor.setStyleSheet("""
-                                        QPushButton {
-                                            background-color: #425BA8;
-                                            color: white;
-                                            font-weight: bold;
-                                            border-radius: 5px;
-                                            padding: 10px;
-                                        }
-                                        QPushButton:hover {
-                                            background-color: #536bc2;
-                                        }
+                                       QPushButton {
+                                           background-color: #425BA8;
+                                           color: white;
+                                           font-weight: bold;
+                                           border-radius: 5px;
+                                           padding: 10px;
+                                       }
+                                       QPushButton:hover {
+                                           background-color: #536bc2;
+                                       }
                                     """)
 
 
@@ -122,12 +122,12 @@ class App(QMainWindow):
         label_inicial = QLabel("Selecione um módulo no menu lateral.")
         label_inicial.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label_inicial.setStyleSheet("""
-                                                      QLabel {
-                                                          color: white;
-                                                          font-weight: bold;
-                                                          font-size: 20px;
-                                                      }
-                                                      """)
+                                    QLabel {
+                                        color: white;
+                                        font-weight: bold;
+                                        font-size: 20px;
+                                    }
+                                    """)
         layout_inicial.addWidget(label_inicial)
 
         # Tela do Hardware
@@ -135,13 +135,13 @@ class App(QMainWindow):
         self.label_hardware = QLabel()
         self.label_hardware.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.label_hardware.setStyleSheet("""
-                                              QLabel {
-                                                  color: white;
-                                                  font-weight: bold;
-                                                  font-size: 16px;
-                                                  font-family: Consolas, monospace;
-                                              }
-                                              """)
+                                          QLabel {
+                                              color: white;
+                                              font-weight: bold;
+                                              font-size: 16px;
+                                              font-family: Consolas, monospace;
+                                          }
+                                          """)
         layout_hardware.addWidget(self.label_hardware)
 
         # Tela do Monitor
@@ -151,13 +151,13 @@ class App(QMainWindow):
         self.label_uptime = QLabel()
         self.label_uptime.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_uptime.setStyleSheet("""
-                                                      QLabel {
-                                                          color: white;
-                                                          font-weight: bold;
-                                                          font-size: 18px;
-                                                          font: monospace;
-                                                      }
-                                                      """)
+                                        QLabel {
+                                            color: white;
+                                            font-weight: bold;
+                                            font-size: 18px;
+                                            font: monospace;
+                                        }
+                                        """)
         self.label_uptime.setFixedHeight(50)
         layout_monitor.addWidget(self.label_uptime)
 
@@ -165,13 +165,13 @@ class App(QMainWindow):
         self.label_cpu = QLabel()
         self.label_cpu.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_cpu.setStyleSheet("""
-                                                              QLabel {
-                                                                  color: white;
-                                                                  font-weight: bold;
-                                                                  font-size: 16px;
-                                                                  font-family: Consolas, monospace;
-                                                              }
-                                                              """)
+                                     QLabel {
+                                         color: white;
+                                         font-weight: bold;
+                                         font-size: 16px;
+                                         font-family: Consolas, monospace;
+                                     }
+                                     """)
         layout_monitor.addWidget(self.label_cpu)
 
         self.barra_cpu = QProgressBar()
@@ -183,13 +183,13 @@ class App(QMainWindow):
         self.label_ram = QLabel()
         self.label_ram.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_ram.setStyleSheet("""
-                                                                      QLabel {
-                                                                          color: white;
-                                                                          font-weight: bold;
-                                                                          font-size: 16px;
-                                                                          font-family: Consolas, monospace;
-                                                                      }
-                                                                      """)
+                                     QLabel {
+                                         color: white;
+                                         font-weight: bold;
+                                         font-size: 16px;
+                                         font-family: Consolas, monospace;
+                                     }
+                                     """)
         layout_monitor.addWidget(self.label_ram)
 
         self.barra_ram = QProgressBar()
@@ -201,13 +201,13 @@ class App(QMainWindow):
         self.label_discos = QLabel()
         self.label_discos.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_discos.setStyleSheet("""
-                                                                                      QLabel {
-                                                                                          color: white;
-                                                                                          font-weight: bold;
-                                                                                          font-size: 16px;
-                                                                                          font-family: Consolas, monospace;
-                                                                                      }
-                                                                                      """)
+                                        QLabel {
+                                            color: white;
+                                            font-weight: bold;
+                                            font-size: 16px;
+                                            font-family: Consolas, monospace;
+                                        }
+                                        """)
         self.label_discos.setText("DISCOS")
         self.label_discos.setFixedHeight(20)
         layout_monitor.addWidget(self.label_discos)
@@ -216,18 +216,27 @@ class App(QMainWindow):
         self.label_disk_speed = QLabel()
         self.label_disk_speed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_disk_speed.setStyleSheet("""
-                                                                              QLabel {
-                                                                                  color: white;
-                                                                                  font-weight: bold;
-                                                                                  font-size: 16px;
-                                                                                  font-family: Consolas, monospace;
-                                                                              }
-                                                                              """)
+                                            QLabel {
+                                                color: white;
+                                                font-weight: bold;
+                                                font-size: 16px;
+                                                font-family: Consolas, monospace;
+                                            }
+                                            """)
+        self.label_disk_speed.setFixedHeight(50)
         layout_monitor.addWidget(self.label_disk_speed)
 
-        layout_monitor.addStretch()
+        # Armazenamento utilizado em cada disco
+        self.barras_discos = {}
 
-        self.frame_modulos.addStretch() # Empurra tudo para cima
+        self.layout_discos = QVBoxLayout()
+        self.layout_discos.setSpacing(15)
+
+        layout_monitor.addLayout(self.layout_discos)
+
+        # Empurra tudo para cima
+        layout_monitor.addStretch()
+        self.frame_modulos.addStretch()
 
         # Agora para colocar os dois frames
         self.main_layout.addWidget(self.sidebar)
@@ -262,6 +271,44 @@ class App(QMainWindow):
         self.label_ram.setText(f"Uso de RAM: {dados['ram_percent']}%")
         self.barra_ram.setValue(int(dados['ram_percent']))
         self.label_disk_speed.setText(f"Leitura: {dados['disk_read_mb']} MB/s Escrita: {dados['disk_write_mb']} MB/s")
+
+        # Discos
+        for info in dados['storage_percent']:
+            nome_disco = info['disco']
+            uso_percent = int(info['percent'])
+            total = info['total']
+            utilizado = info['used']
+            livre = info['free']
+
+            # Verifica se o disco já está no dicionario criado no __init__
+            # Se sim atualiza os valores da label e progress bar
+            if nome_disco in self.barras_discos:
+                label_disco, barra_disco = self.barras_discos[nome_disco]
+                label_disco.setText(f"{nome_disco} Total: {total} GB Livre: {livre} GB Utilizado: {utilizado} GB ({uso_percent}%)")
+                barra_disco.setValue(uso_percent)
+
+            # Se não é criado e configurado cada label e progress bar
+            else:
+                label_disco = QLabel()
+                label_disco.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                label_disco.setStyleSheet("""
+                                              QLabel {
+                                                  color: white;
+                                                  font-size: 14px;
+                                                  font-family: DejaVu Sans Mono, monospace;
+                                              }
+                                              """)
+                label_disco.setText(f"{nome_disco} Total: {total} GB Livre: {livre} GB Utilizado: {utilizado} GB ({uso_percent}%)")
+
+                barra_disco = QProgressBar()
+                barra_disco.setRange(0, 100)
+                barra_disco.setValue(uso_percent)
+
+                self.layout_discos.addWidget(label_disco)
+                self.layout_discos.addWidget(barra_disco)
+
+                self.barras_discos[nome_disco] = (label_disco, barra_disco)
+
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
