@@ -48,7 +48,10 @@ class MonitorWorker(QObject):
 
                     storage_usage.append({
                         "disco": nome_disco,
-                        "percent": usage.percent
+                        "percent": usage.percent,
+                        "total": round(usage.total/1024/1024/1024,1),
+                        "used": round(usage.used/1024/1024/1024,1),
+                        "free": round(usage.free/1024/1024/1024,1)
                     })
                 except Exception:
                     # O try/except é vital no Windows. Se houver um leitor de cartão ou
