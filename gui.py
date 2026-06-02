@@ -11,7 +11,7 @@ class App(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("SYS-PULSE - Monitoramento Inteligente")
-        self.resize(900, 500)
+        self.resize(1000, 500)
 
         # Cor de fundo padrãozinho CSS
         self.setStyleSheet("background-color: #121212;")
@@ -197,6 +197,24 @@ class App(QMainWindow):
         self.barra_ram.setValue(0)
         layout_monitor.addWidget(self.barra_ram)
 
+        # GPU Label e progress bar
+        self.label_gpu = QLabel()
+        self.label_gpu.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_gpu.setStyleSheet("""
+                                             QLabel {
+                                                 color: white;
+                                                 font-weight: bold;
+                                                 font-size: 16px;
+                                                 font-family: Consolas, monospace;
+                                             }
+                                             """)
+        layout_monitor.addWidget(self.label_gpu)
+
+        self.barra_gpu = QProgressBar()
+        self.barra_gpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
+        self.barra_gpu.setValue(0)
+        layout_monitor.addWidget(self.barra_gpu)
+
         #Discos
         self.label_discos = QLabel()
         self.label_discos.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -270,6 +288,9 @@ class App(QMainWindow):
         self.barra_cpu.setValue(int(dados['cpu_percent']))
         self.label_ram.setText(f"Uso de RAM: {dados['ram_percent']}%")
         self.barra_ram.setValue(int(dados['ram_percent']))
+        self.label_gpu.setText(f"GPU\n\nMemória Utilizada: {dados['gpu']['memory']} GB Temperatura: {dados['gpu']['temperature']} º\n\n"
+                               f"Uso: {dados['gpu']['percent']}%")
+        self.barra_gpu.setValue(int(dados['gpu']['percent']))
         self.label_disk_speed.setText(f"Leitura: {dados['disk_read_mb']} MB/s Escrita: {dados['disk_write_mb']} MB/s")
 
         # Discos
