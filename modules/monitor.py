@@ -2,6 +2,7 @@ import psutil
 import time
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal
+import GPUtil
 
 class MonitorWorker(QObject):
 
@@ -29,6 +30,16 @@ class MonitorWorker(QObject):
             # Coleta de dados em tempo real
             cpu_usage = psutil.cpu_percent(interval=None)
             ram_usage = psutil.virtual_memory().percent
+
+            # GPU para casos de uma GPU só por hora
+
+            gpus = GPUtil.getGPUs()
+            gpu_info = {}
+
+            for gpu in gpus:
+                gpu_info['percent'] = gpu.load * 100
+                gpu_info['memory'] = round(gpu.memoryUtil * 100)
+                gpu_info['temperature'] = gpu.temperature
 
             # Coleta inteligente de todas as partições (Discos/SSDs)
             storage_usage = []
@@ -87,6 +98,7 @@ class MonitorWorker(QObject):
 
             dados = {
                 "uptime": uptime_str,
+                "gpu": gpu_info,
                 "cpu_percent": cpu_usage,
                 "ram_percent": ram_usage,
                 "storage_percent": storage_usage,
