@@ -38,7 +38,7 @@ class MonitorWorker(QObject):
 
             for gpu in gpus:
                 gpu_info['percent'] = gpu.load * 100
-                gpu_info['memory'] = round(gpu.memoryUtil * 100)
+                gpu_info['memory'] = round(gpu.memoryUsed / 1024,1)
                 gpu_info['temperature'] = gpu.temperature
 
             # Coleta inteligente de todas as partições (Discos/SSDs)
