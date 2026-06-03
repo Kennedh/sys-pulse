@@ -1,10 +1,80 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton,
-                               QStackedWidget, QProgressBar)
+                               QStackedWidget, QProgressBar, QTabWidget, QTableView, QHeaderView)
 from PySide6.QtCore import Qt
 
 from modules.hardware import get_hardware_info
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, QAbstractTableModel
 from modules.monitor import MonitorWorker
+
+
+class ProcessTableModel(QAbstractTableModel):
+    def __init__(self, dados):
+        super().__init__()
+        self.dados = dados
+        # Padrão: Coluna 1 (CPU), do maior para o menor (Descending)
+        self.coluna_ordenacao = 1
+        self.ordem_ordenacao = Qt.DescendingOrder
+
+    def columnCount(self, parent=None):
+        return 3
+
+    def rowCount(self, parent=None):
+        return len(self.dados['processes'])
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole:
+            linha = index.row()
+            processo = self.dados['processes'][linha]
+            coluna = index.column()
+
+            if coluna == 0:
+                return processo['name']
+            elif coluna == 1:
+                return f"{processo['cpu_percent']}%"
+            elif coluna == 2:
+                return f"{processo['ram_percent']}%"
+
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            if section == 0:
+                return "Nome"
+            elif section == 1:
+                return "CPU"
+            elif section == 2:
+                return "RAM"
+
+    def sort(self, column, order):
+        # O Qt chama este metodo automaticamente quando clica no título da tabela!
+        self.coluna_ordenacao = column
+        self.ordem_ordenacao = order
+        self.aplicar_ordenacao()
+
+    def aplicar_ordenacao(self):
+        # Se a lista estiver vazia, não faz nada
+        if not self.dados['processes']:
+            return
+
+        # Descobre qual chave do dicionário usar para ordenar
+        if self.coluna_ordenacao == 0:
+            chave = 'name'
+        elif self.coluna_ordenacao == 1:
+            chave = 'cpu_percent'
+        elif self.coluna_ordenacao == 2:
+            chave = 'ram_percent'
+
+        # Verifica se é do maior para o menor
+        reverso = (self.ordem_ordenacao == Qt.DescendingOrder)
+
+        # ordena a lista baseada na chave escolhida!
+        self.dados['processes'].sort(key=lambda x: x[chave], reverse=reverso)
+
+        # Avisa a interface que os dados mudaram de lugar
+        self.layoutChanged.emit()
+
+    def atualizar_dados(self, novos_dados):
+        self.dados = novos_dados
+        # Agora chama a ordenação em vez do layoutChanged!
+        self.aplicar_ordenacao()
 
 class App(QMainWindow):
     def __init__(self):
@@ -144,8 +214,28 @@ class App(QMainWindow):
                                           """)
         layout_hardware.addWidget(self.label_hardware)
 
-        # Tela do Monitor
-        layout_monitor = QVBoxLayout(self.tela_monitor)
+        # Abas
+        self.abas_monitor = QTabWidget()
+
+        self.abas_monitor.setStyleSheet("""
+                    QTabWidget::pane { border: none; }
+                    QTabBar::tab { background: #1e1e1e; color: #888; padding: 10px 30px; font-weight: bold; font-size: 14px;}
+                    QTabBar::tab:hover { background: #333; color: white; }
+                    QTabBar::tab:selected { background: #425BA8; color: white; }
+                """)
+
+        # Cada aba é adicionado como Widget
+        self.aba_recursos = QWidget()
+        self.aba_processos = QWidget()
+
+        self.abas_monitor.addTab(self.aba_recursos, "Recursos")
+        self.abas_monitor.addTab(self.aba_processos, "Processos")
+
+        layout_base_monitor = QVBoxLayout(self.tela_monitor)
+        layout_base_monitor.addWidget(self.abas_monitor)
+
+        # Tela de recursos
+        layout_recursos = QVBoxLayout(self.aba_recursos)
 
         # Tempo de boot
         self.label_uptime = QLabel()
@@ -159,7 +249,7 @@ class App(QMainWindow):
                                         }
                                         """)
         self.label_uptime.setFixedHeight(50)
-        layout_monitor.addWidget(self.label_uptime)
+        layout_recursos.addWidget(self.label_uptime)
 
         # CPU Label e Progress Bar
         self.label_cpu = QLabel()
@@ -172,12 +262,12 @@ class App(QMainWindow):
                                          font-family: Consolas, monospace;
                                      }
                                      """)
-        layout_monitor.addWidget(self.label_cpu)
+        layout_recursos.addWidget(self.label_cpu)
 
         self.barra_cpu = QProgressBar()
         self.barra_cpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
         self.barra_cpu.setValue(0)
-        layout_monitor.addWidget(self.barra_cpu)
+        layout_recursos.addWidget(self.barra_cpu)
 
         # RAM Label e Progress Bar
         self.label_ram = QLabel()
@@ -190,12 +280,12 @@ class App(QMainWindow):
                                          font-family: Consolas, monospace;
                                      }
                                      """)
-        layout_monitor.addWidget(self.label_ram)
+        layout_recursos.addWidget(self.label_ram)
 
         self.barra_ram = QProgressBar()
         self.barra_ram.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
         self.barra_ram.setValue(0)
-        layout_monitor.addWidget(self.barra_ram)
+        layout_recursos.addWidget(self.barra_ram)
 
         # GPU Label e progress bar
         self.label_gpu = QLabel()
@@ -208,12 +298,12 @@ class App(QMainWindow):
                                                  font-family: Consolas, monospace;
                                              }
                                              """)
-        layout_monitor.addWidget(self.label_gpu)
+        layout_recursos.addWidget(self.label_gpu)
 
         self.barra_gpu = QProgressBar()
         self.barra_gpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
         self.barra_gpu.setValue(0)
-        layout_monitor.addWidget(self.barra_gpu)
+        layout_recursos.addWidget(self.barra_gpu)
 
         #Discos
         self.label_discos = QLabel()
@@ -228,7 +318,7 @@ class App(QMainWindow):
                                         """)
         self.label_discos.setText("DISCOS")
         self.label_discos.setFixedHeight(20)
-        layout_monitor.addWidget(self.label_discos)
+        layout_recursos.addWidget(self.label_discos)
 
         # Velocidade de Leitura e Escrita dos Discos
         self.label_disk_speed = QLabel()
@@ -242,7 +332,7 @@ class App(QMainWindow):
                                             }
                                             """)
         self.label_disk_speed.setFixedHeight(50)
-        layout_monitor.addWidget(self.label_disk_speed)
+        layout_recursos.addWidget(self.label_disk_speed)
 
         # Armazenamento utilizado em cada disco
         self.barras_discos = {}
@@ -250,10 +340,10 @@ class App(QMainWindow):
         self.layout_discos = QVBoxLayout()
         self.layout_discos.setSpacing(15)
 
-        layout_monitor.addLayout(self.layout_discos)
+        layout_recursos.addLayout(self.layout_discos)
 
         # Empurra tudo para cima
-        layout_monitor.addStretch()
+        layout_recursos.addStretch()
         self.frame_modulos.addStretch()
 
         # Agora para colocar os dois frames
@@ -277,6 +367,31 @@ class App(QMainWindow):
 
         # Adição de evento ao botão
         self.btn_monitor.clicked.connect(self.mostrar_monitor)
+
+        # PROCESSOS
+        layout_processos = QVBoxLayout(self.aba_processos)
+
+        self.view_processos = QTableView()
+        self.view_processos.setStyleSheet("""
+                    QTableView { background-color: #121212; color: white; gridline-color: #333; border: none; font-size: 13px;}
+                    QHeaderView::section { background-color: #1e1e1e; color: white; padding: 5px; border: 1px solid #333; font-weight: bold; font-size: 13px;}
+                    QTableView::item:selected { background-color: #425BA8; }
+                """)
+        layout_processos.addWidget(self.view_processos)
+
+        # Cria a view vazia para depois popular os dados
+        dados_vazios = {'processes': []}
+        self.modelo_processos = ProcessTableModel(dados_vazios)
+
+        # Conecta ao modelo de dados
+        self.view_processos.setModel(self.modelo_processos)
+
+        # Ordenação da view
+        self.view_processos.setSortingEnabled(True)
+
+        # Ajustar tamanho da coluna na View
+        header = self.view_processos.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
     def mostrar_hardware(self):
         self.telas.setCurrentIndex(1)
@@ -329,6 +444,9 @@ class App(QMainWindow):
                 self.layout_discos.addWidget(barra_disco)
 
                 self.barras_discos[nome_disco] = (label_disco, barra_disco)
+
+        # Atualizar dados da view
+        self.modelo_processos.atualizar_dados(dados)
 
 
     def mostrar_monitor(self):
