@@ -37,7 +37,7 @@ class MonitorWorker(QObject):
             gpu_info = {}
 
             for gpu in gpus:
-                gpu_info['percent'] = gpu.load * 100
+                gpu_info['percent'] = round(gpu.load * 100)
                 gpu_info['memory'] = round(gpu.memoryUsed / 1024,1)
                 gpu_info['temperature'] = gpu.temperature
 
