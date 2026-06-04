@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton,
-                               QStackedWidget, QProgressBar, QTabWidget, QTableView, QHeaderView)
+                               QStackedWidget, QProgressBar, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon,
+                               QMenu, QStyle, QApplication)
 from PySide6.QtCore import Qt
-
+from PySide6.QtGui import QAction
 from modules.hardware import get_hardware_info
 from PySide6.QtCore import QThread, QAbstractTableModel
 from modules.monitor import MonitorWorker
@@ -393,6 +394,30 @@ class App(QMainWindow):
         header = self.view_processos.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
+        # Icone da bandeja
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+
+        # Menu do TrayIcon
+        tray_menu = QMenu()
+
+        # Opções clicaveis
+        action_restaurar = QAction("Restaurar", self)
+        action_sair = QAction("Sair", self)
+
+        # Reabre a janela
+        action_restaurar.triggered.connect(self.show)
+
+        # Para fechar é necessário chamar o motor da aplicação que está na Main (QApplication)
+        action_sair.triggered.connect(QApplication.instance().quit)
+
+        # 4. Adicionamos as ações dentro do menu
+        tray_menu.addAction(action_restaurar)
+        tray_menu.addAction(action_sair)
+
+        # 5. Finalmente, colamos o menu no nosso ícone da bandeja!
+        self.tray_icon.setContextMenu(tray_menu)
+
     def mostrar_hardware(self):
         self.telas.setCurrentIndex(1)
         self.label_hardware.setText(f"{get_hardware_info()}")
@@ -452,3 +477,8 @@ class App(QMainWindow):
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
         self.thread_monitor.start()
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
+        self.tray_icon.show()
