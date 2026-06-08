@@ -151,6 +151,9 @@ class App(QMainWindow):
                                        }
                                     """)
 
+        self.btn_rede = QPushButton("REDE")
+        self.btn_rede.setStyleSheet(self.btn_hardware.styleSheet())  # Copia o estilo para ser mais rápido
+        self.btn_rede.clicked.connect(self.mostrar_rede)
 
         # Frame da direita onde vou colocar os módulos
         self.main_frame = QFrame()
@@ -172,6 +175,7 @@ class App(QMainWindow):
         self.frame_botoes.addWidget(self.logo_label)
         self.frame_botoes.addWidget(self.btn_hardware)
         self.frame_botoes.addWidget(self.btn_monitor)
+        self.frame_botoes.addWidget(self.btn_rede)
 
         self.frame_botoes.addStretch() # Empurra tudo para cima
 
@@ -411,12 +415,47 @@ class App(QMainWindow):
         # Para fechar é necessário chamar o motor da aplicação que está na Main (QApplication)
         action_sair.triggered.connect(QApplication.instance().quit)
 
-        # 4. Adicionamos as ações dentro do menu
+        # Adiciona as ações dentro do menu
         tray_menu.addAction(action_restaurar)
         tray_menu.addAction(action_sair)
 
-        # 5. Finalmente, colamos o menu no nosso ícone da bandeja!
+        # cola o menu no nosso ícone da bandeja!
         self.tray_icon.setContextMenu(tray_menu)
+
+        # === NETWORK ===
+        # Criar a página
+        self.tela_rede = QWidget()
+        self.telas.addWidget(self.tela_rede)  # Será a Carta 3 do baralho
+
+        # Layout da Tela de Rede
+        layout_rede = QVBoxLayout(self.tela_rede)
+
+        # Label de Download
+        self.label_download = QLabel("Download: 0.00 MB/s")
+        self.label_download.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_download.setStyleSheet("""
+                                                QLabel {
+                                                    color: #4CAF50; /* Verde estilo Matrix/Hacker */
+                                                    font-weight: bold;
+                                                    font-size: 24px;
+                                                    font-family: Consolas, monospace;
+                                                }
+                                                """)
+        layout_rede.addWidget(self.label_download)
+
+        # Label de Upload
+        self.label_upload = QLabel("Upload: 0.00 MB/s")
+        self.label_upload.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_upload.setStyleSheet("""
+                                                QLabel {
+                                                    color: #2196F3; /* Azul */
+                                                    font-weight: bold;
+                                                    font-size: 24px;
+                                                    font-family: Consolas, monospace;
+                                                }
+                                                """)
+        layout_rede.addWidget(self.label_upload)
+        layout_rede.addStretch()  # Empurra os textos para cima
 
     def mostrar_hardware(self):
         self.telas.setCurrentIndex(1)
@@ -473,6 +512,14 @@ class App(QMainWindow):
         # Atualizar dados da view
         self.modelo_processos.atualizar_dados(dados)
 
+        # Extrai os dados de rede do dicionário
+        vel_down = dados['network']['download_mbs']
+        vel_up = dados['network']['upload_mbs']
+
+        # Atualiza as labels
+        self.label_download.setText(f"Download: {vel_down} MB/s")
+        self.label_upload.setText(f"Upload: {vel_up} MB/s")
+
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
@@ -482,3 +529,7 @@ class App(QMainWindow):
         event.ignore()
         self.hide()
         self.tray_icon.show()
+
+    def mostrar_rede(self):
+        self.telas.setCurrentIndex(3)
+        self.thread_monitor.start()
