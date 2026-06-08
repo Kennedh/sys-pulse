@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal
 import GPUtil
+from modules.network import NetworkMonitor
 
 class MonitorWorker(QObject):
 
@@ -16,6 +17,7 @@ class MonitorWorker(QObject):
 
         # Uma chave de segurança para ligar/desligar o monitor pelo menu
         self.is_running = True
+        self.net_monitor = NetworkMonitor()  # Inicia a memória da rede
 
     def run(self):
         #O Motor: O loop que vai rodar no fundo eternamente (ou até mandar parar)
@@ -104,7 +106,8 @@ class MonitorWorker(QObject):
                 "storage_percent": storage_usage,
                 "disk_read_mb": round(read_speed, 1),
                 "disk_write_mb": round(write_speed, 1),
-                "processes": processos
+                "processes": processos,
+                "network": self.net_monitor.get_network_speed()
             }
 
             # Retorno dos dados coletados
