@@ -21,8 +21,14 @@ A interface foi construída utilizando **PySide6 (Qt6)**, focando em alta perfor
   * Tabela em tempo real com todos os processos ativos do Windows.
   * Renderização otimizada utilizando o padrão **MVC (Model-View)** nativo do Qt (`ProcessTableModel` e `QTableView`), capaz de lidar com centenas de linhas sem perda de performance.
   * Ordenação dinâmica de processos (por uso de CPU, RAM ou Nome) com preservação de estado entre atualizações.
+* **Monitoramento de Rede (Módulo Network):**
+  * Cálculo dinâmico da taxa de transferência de rede, exibindo velocidades de Download e Upload em Megabytes por segundo (MB/s).
+  * Monitor de latência (Ping) integrado rodando de forma assíncrona via subprocesso nativo para evitar travamentos, com tratamento para perdas de pacotes ou falhas de conexão.
+* **Execução em Segundo Plano (Bandeja do Sistema):**
+  * Interceptação do evento de fechamento da janela principal (`closeEvent`). Ao clicar em fechar, a aplicação é minimizada para a área de notificação do Windows (`QSystemTrayIcon`).
+  * Menu de contexto integrado na bandeja do sistema que permite restaurar a interface gráfica ou encerrar definitivamente a execução da ferramenta.
 
 ## 🛠️ Tecnologias
 - **Linguagem:** Python 3.x
 - **Interface Gráfica:** `PySide6` (Qt6)
-- **Bibliotecas de Sensores:** `psutil`, `GPUtil`, `platform`
+- **Bibliotecas de Sensores e Sistema:** `psutil`, `GPUtil`, `platform`, `subprocess`
