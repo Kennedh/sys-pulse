@@ -455,6 +455,19 @@ class App(QMainWindow):
                                                 }
                                                 """)
         layout_rede.addWidget(self.label_upload)
+
+        # Label de Ping
+        self.label_ping = QLabel("Ping: -- ms")
+        self.label_ping.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_ping.setStyleSheet("""
+                                                        QLabel {
+                                                            color: #FFC107; /* Amarelo/Laranja para destacar */
+                                                            font-weight: bold;
+                                                            font-size: 24px;
+                                                            font-family: Consolas, monospace;
+                                                        }
+                                                        """)
+        layout_rede.addWidget(self.label_ping)
         layout_rede.addStretch()  # Empurra os textos para cima
 
     def mostrar_hardware(self):
@@ -515,11 +528,16 @@ class App(QMainWindow):
         # Extrai os dados de rede do dicionário
         vel_down = dados['network']['download_mbs']
         vel_up = dados['network']['upload_mbs']
+        ping = dados.get('ping', -1)
 
         # Atualiza as labels
         self.label_download.setText(f"Download: {vel_down} MB/s")
         self.label_upload.setText(f"Upload: {vel_up} MB/s")
 
+        if ping != -1:
+            self.label_ping.setText(f"Ping: {ping} ms")
+        else:
+            self.label_ping.setText("Ping: Falha/Timeout")
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
