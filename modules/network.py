@@ -8,30 +8,36 @@ class NetworkMonitor:
         self.last_io = psutil.net_io_counters()
         self.last_time = time.time()
 
+        # (Marco zero: Acumulo de download na sessão)guarda o dado de quando o app abriu
+        self.start_io = self.last_io
+
     def get_network_speed(self):
-        # Pega os dados exatos de agora
         current_io = psutil.net_io_counters()
         current_time = time.time()
 
-        # Calcula quanto tempo passou (normalmente 1 segundo, mas é bom ser exato)
+        # --- Cálculo da Velocidade Instantânea ---
         time_delta = current_time - self.last_time
-
-        # Prevenção de erro de divisão por zero
         if time_delta == 0:
             time_delta = 1
 
-        # Subtrai o atual pelo antigo para saber quanto trafegou NESTE segundo
-        # E divide por (1024 * 1024) para converter de Bytes para Megabytes (MB)
         download_mbs = (current_io.bytes_recv - self.last_io.bytes_recv) / time_delta / (1024 * 1024)
         upload_mbs = (current_io.bytes_sent - self.last_io.bytes_sent) / time_delta / (1024 * 1024)
 
-        # Atualiza a memória para ser usada no próximo ciclo!
+        # Atualiza a memória de curto prazo para o próximo segundo
         self.last_io = current_io
         self.last_time = current_time
 
+        # --- Cálculo do Consumo Acumulado (NOVO) ---
+        # Subtrai o atual pelo start_io (Marco Zero)
+        total_down_mb = (current_io.bytes_recv - self.start_io.bytes_recv) / (1024 * 1024)
+        total_up_mb = (current_io.bytes_sent - self.start_io.bytes_sent) / (1024 * 1024)
+
+        # Retornamos tudo no mesmo dicionário
         return {
             'download_mbs': round(download_mbs, 2),
-            'upload_mbs': round(upload_mbs, 2)
+            'upload_mbs': round(upload_mbs, 2),
+            'total_down_mb': round(total_down_mb, 2), # Adicionado
+            'total_up_mb': round(total_up_mb, 2)      # Adicionado
         }
 
     def get_ping(self):

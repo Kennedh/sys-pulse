@@ -468,6 +468,20 @@ class App(QMainWindow):
                                                         }
                                                         """)
         layout_rede.addWidget(self.label_ping)
+
+        # Label de Consumo Acumulado (Sessão)
+        self.label_acumulado = QLabel("Sessão Atual - Down: 0.0 MB | Up: 0.0 MB")
+        self.label_acumulado.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_acumulado.setStyleSheet("""
+                                                        QLabel {
+                                                            color: #B0BEC5; /* Cinza claro para não roubar a atenção */
+                                                            font-weight: bold;
+                                                            font-size: 16px;
+                                                            font-family: Consolas, monospace;
+                                                            margin-top: 20px; /* Dá um pequeno respiro entre o ping e o rodapé */
+                                                        }
+                                                        """)
+        layout_rede.addWidget(self.label_acumulado)
         layout_rede.addStretch()  # Empurra os textos para cima
 
     def mostrar_hardware(self):
@@ -538,6 +552,14 @@ class App(QMainWindow):
             self.label_ping.setText(f"Ping: {ping} ms")
         else:
             self.label_ping.setText("Ping: Falha/Timeout")
+
+        # --- Lógica de Consumo Acumulado ---
+        total_down = dados['network']['total_down_mb']
+        total_up = dados['network']['total_up_mb']
+        # Formatação inteligente: se passar de 1024 MB, divide por 1024 e mostra em GB
+        str_down = f"{total_down / 1024:.2f} GB" if total_down >= 1024 else f"{total_down} MB"
+        str_up = f"{total_up / 1024:.2f} GB" if total_up >= 1024 else f"{total_up} MB"
+        self.label_acumulado.setText(f"Sessão Atual - Down: {str_down} | Up: {str_up}")
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)
