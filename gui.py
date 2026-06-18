@@ -482,6 +482,20 @@ class App(QMainWindow):
                                                         }
                                                         """)
         layout_rede.addWidget(self.label_acumulado)
+
+        # Label de Infraestrutura de Rede
+        self.label_net_info = QLabel("Adaptador: -- | Velocidade do Link: -- | IP Local: --")
+        self.label_net_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_net_info.setStyleSheet("""
+                                                        QLabel {
+                                                            color: #00BCD4; /* Ciano/Azul claro para diferenciar */
+                                                            font-weight: bold;
+                                                            font-size: 15px;
+                                                            font-family: Consolas, monospace;
+                                                            margin-top: 25px;
+                                                        }
+                                                        """)
+        layout_rede.addWidget(self.label_net_info)
         layout_rede.addStretch()  # Empurra os textos para cima
 
     def mostrar_hardware(self):
@@ -560,6 +574,15 @@ class App(QMainWindow):
         str_down = f"{total_down / 1024:.2f} GB" if total_down >= 1024 else f"{total_down} MB"
         str_up = f"{total_up / 1024:.2f} GB" if total_up >= 1024 else f"{total_up} MB"
         self.label_acumulado.setText(f"Sessão Atual - Down: {str_down} | Up: {str_up}")
+
+        # Extrai os dados de infraestrutura
+        net_info = dados.get('net_info', {})
+        ip_interno = net_info.get('local_ip', '--')
+        nome_adaptador = net_info.get('interface_name', '--')
+        vel_link = net_info.get('link_speed', '--')
+
+        # Atualiza a nova label
+        self.label_net_info.setText(f"Interface: {nome_adaptador} | Link: {vel_link} | IP Local: {ip_interno}")
 
     def mostrar_monitor(self):
         self.telas.setCurrentIndex(2)

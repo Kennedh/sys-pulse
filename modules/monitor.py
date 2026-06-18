@@ -108,7 +108,8 @@ class MonitorWorker(QObject):
                 "disk_write_mb": round(write_speed, 1),
                 "processes": processos,
                 "network": self.net_monitor.get_network_speed(),
-                "ping": self.net_monitor.get_ping()
+                "ping": self.net_monitor.get_ping(),
+                "net_info": self.net_monitor.get_infrastructure_info()
             }
 
             # Retorno dos dados coletados
