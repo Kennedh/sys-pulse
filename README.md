@@ -24,6 +24,8 @@ A interface foi construída utilizando **PySide6 (Qt6)**, focando em alta perfor
 * **Monitoramento de Rede (Módulo Network):**
   * Cálculo dinâmico da taxa de transferência de rede, exibindo velocidades de Download e Upload em Megabytes por segundo (MB/s).
   * Monitor de latência (Ping) integrado rodando de forma assíncrona via subprocesso nativo para evitar travamentos, com tratamento para perdas de pacotes ou falhas de conexão.
+  * Rastreamento de consumo de dados acumulado na sessão atual com conversão dinâmica inteligente (MB/GB).
+  * Diagnóstico em tempo real de infraestrutura local, identificando o adaptador de rede ativo, IP interno (IPv4) e a velocidade máxima física do link negociada com o roteador.
 * **Execução em Segundo Plano (Bandeja do Sistema):**
   * Interceptação do evento de fechamento da janela principal (`closeEvent`). Ao clicar em fechar, a aplicação é minimizada para a área de notificação do Windows (`QSystemTrayIcon`).
   * Menu de contexto integrado na bandeja do sistema que permite restaurar a interface gráfica ou encerrar definitivamente a execução da ferramenta.
@@ -31,4 +33,4 @@ A interface foi construída utilizando **PySide6 (Qt6)**, focando em alta perfor
 ## 🛠️ Tecnologias
 - **Linguagem:** Python 3.x
 - **Interface Gráfica:** `PySide6` (Qt6)
-- **Bibliotecas de Sensores e Sistema:** `psutil`, `GPUtil`, `platform`, `subprocess`
+- **Bibliotecas de Sensores e Sistema:** `psutil`, `GPUtil`, `platform`, `subprocess`, `socket`
