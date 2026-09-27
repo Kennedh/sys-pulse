@@ -37,6 +37,17 @@ O SysPulse reúne essas informações em um só lugar para tornar a investigaç�
 - Restauração rápida da interface
 - Encerramento pelo menu da bandeja
 
+## 📸 Screenshots
+
+### Visão geral
+![SysPulse - visão geral](assets/screenshots/01-recursos.png)
+
+### Hardware
+![SysPulse - hardware](assets/screenshots/02-hardware.png)
+
+### Rede
+![SysPulse - rede](assets/screenshots/03-rede.png)
+
 ## 🧠 Destaques técnicos
 
 O projeto foi estruturado para evitar que tarefas de monitoramento prejudiquem a experiência da interface.
