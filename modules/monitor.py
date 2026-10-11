@@ -1,117 +1,176 @@
-import psutil
+import threading
 import time
 from datetime import datetime
-from PySide6.QtCore import QObject, Signal
-import GPUtil
+
+import psutil
+
 from modules.network import NetworkMonitor
+from modules.sensors import SensorService
+from modules.windows_counters import WindowsCounters
 
-class MonitorWorker(QObject):
 
-    dados_atualizados = Signal(dict)
+def process_io_rates(previous, current, seconds):
+    """None on warm-up, unsupported counters or counter reset."""
+    rates = {"io_read_mbs": None, "io_write_mbs": None, "io_total_mbs": None}
+    if previous is None or current is None or seconds <= 0:
+        return rates
+    for field, key in (("read_bytes", "io_read_mbs"), ("write_bytes", "io_write_mbs")):
+        before, after = getattr(previous, field, -1), getattr(current, field, -1)
+        if before >= 0 and after >= before:
+            rates[key] = (after - before) / seconds / 1024 ** 2
+    if rates["io_read_mbs"] is not None and rates["io_write_mbs"] is not None:
+        rates["io_total_mbs"] = rates["io_read_mbs"] + rates["io_write_mbs"]
+    return rates
 
-    def __init__(self, discos_ignorados=None):
-        super().__init__()
-        self.discos_ignorados = discos_ignorados if discos_ignorados else []
-        self.old_disk_io = psutil.disk_io_counters()
-        self.num_cores = psutil.cpu_count()
 
-        # Uma chave de segurança para ligar/desligar o monitor pelo menu
-        self.is_running = True
-        self.net_monitor = NetworkMonitor()  # Inicia a memória da rede
+def disk_rates(previous, current, seconds):
+    result = []
+    if seconds <= 0:
+        return result
+    for name, value in current.items():
+        old = previous.get(name)
+        row = {"name": name, "read_mbs": None, "write_mbs": None,
+               "read_ms": None, "write_ms": None, "active_percent": None}
+        if old is not None:
+            def delta(field):
+                before, after = getattr(old, field, None), getattr(value, field, None)
+                return after - before if before is not None and after is not None and after >= before else None
+
+            for operation in ("read", "write"):
+                size, count, duration = (delta(f"{operation}_{field}") for field in ("bytes", "count", "time"))
+                row[f"{operation}_mbs"] = size / seconds / 1024 ** 2 if size is not None else None
+                row[f"{operation}_ms"] = duration / count if duration is not None and count else None
+            busy = delta("busy_time")
+            row["active_percent"] = min(100.0, busy / (seconds * 10)) if busy is not None else None
+        result.append(row)
+    return result
+
+
+class MonitorWorker:
+    def __init__(self, on_sample=None, discos_ignorados=None):
+        self.on_sample = on_sample
+        self.discos_ignorados = discos_ignorados or []
+        self.interval = 0.5
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._latest = None
+        self._thread = None
+        self.sensors = SensorService(self.discos_ignorados)
+        self.last_error = None
+        self._process_io = {}
+        self._cpu_count = psutil.cpu_count() or 1
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self.sensors.start()
+        self._thread = threading.Thread(target=self.run, name="sys-pulse-collector", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+        self.sensors.stop()
+
+    def latest(self):
+        with self._lock:
+            return self._latest
+
+    def _processes(self, gpu_processes=None):
+        rows = []
+        now = time.monotonic()
+        previous_io, self._process_io = self._process_io, {}
+        for process in psutil.process_iter(["pid", "name"]):
+            if process.pid == 0:
+                continue
+            try:
+                with process.oneshot():
+                    created = process.create_time()
+                    row = {"pid": process.pid, "name": process.info["name"] or "?",
+                                 "created": created,
+                                 "cpu_percent": round(process.cpu_percent() / self._cpu_count, 2),
+                                 "ram_percent": round(process.memory_percent(), 2),
+                                 "rss_mb": round(process.memory_info().rss / 1024 ** 2, 1),
+                                 "gpu_percent": (gpu_processes or {}).get(process.pid)}
+                    try:
+                        current = process.io_counters()
+                    except (psutil.Error, OSError, AttributeError, NotImplementedError):
+                        current = None
+                    key = (process.pid, created)
+                    previous, at = previous_io.get(key, (None, now))
+                    row.update(process_io_rates(previous, current, now - at))
+                    if current is not None:
+                        self._process_io[key] = (current, now)
+                    rows.append(row)
+            except (psutil.Error, OSError):
+                continue
+        return sorted(rows, key=lambda row: row["cpu_percent"], reverse=True)
 
     def run(self):
-        #O Motor: O loop que vai rodar no fundo eternamente (ou até mandar parar)
-
-        while self.is_running:
-
-            # Tempo de boot
-            boot_time = datetime.fromtimestamp(psutil.boot_time())
-            uptime = datetime.now() - boot_time
-            uptime_str = str(uptime).split('.')[0]
-
-            # Coleta de dados em tempo real
-            cpu_usage = psutil.cpu_percent(interval=None)
-            ram_usage = psutil.virtual_memory().percent
-
-            # GPU para casos de uma GPU só por hora
-
-            gpus = GPUtil.getGPUs()
-            gpu_info = {}
-
-            for gpu in gpus:
-                gpu_info['percent'] = round(gpu.load * 100)
-                gpu_info['memory'] = round(gpu.memoryUsed / 1024,1)
-                gpu_info['temperature'] = gpu.temperature
-
-            # Coleta inteligente de todas as partições (Discos/SSDs)
-            storage_usage = []
-
-            # all=False ignora partições virtuais/vazias do sistema
-            for partition in psutil.disk_partitions(all=False):
+        counters = WindowsCounters()
+        gpu_counters = WindowsCounters(gpu_only=True)
+        try:
+            network = NetworkMonitor()
+            previous_disks = psutil.disk_io_counters(perdisk=True) or {}
+            psutil.cpu_percent(percpu=True)
+            psutil.cpu_percent()
+            psutil.cpu_times_percent()
+            self._processes()
+            processes = []
+            process_at = previous_at = time.monotonic()
+            boot_time = psutil.boot_time()
+            deadline = previous_at + self.interval
+            while not self._stop.wait(max(0, deadline - time.monotonic())):
+                started = time.monotonic()
                 try:
-                    # Lê o uso do ponto de montagem (ex: "C:\", "D:\")
-                    usage = psutil.disk_usage(partition.mountpoint)
-
-                    # Limpa o nome (tira as barras) para ficar visualmente bonito, ex: "C:"
-                    nome_disco = partition.device.replace('\\', '')
-
-                    # Ignora o disco caso esteja na lista
-                    if nome_disco in self.discos_ignorados:
-                        continue
-
-                    storage_usage.append({
-                        "disco": nome_disco,
-                        "percent": usage.percent,
-                        "total": round(usage.total/1024/1024/1024,1),
-                        "used": round(usage.used/1024/1024/1024,1),
-                        "free": round(usage.free/1024/1024/1024,1)
-                    })
-                except Exception:
-                    # O try/except é vital no Windows. Se houver um leitor de cartão ou
-                    # drive de DVD vazio, o SO bloqueia a leitura. O except ignora e pula pro próximo.
-                    continue
-
-            # Cálculo de Atividade do Disco (I/O)
-            new_disk_io = psutil.disk_io_counters()
-            read_speed = (new_disk_io.read_bytes - self.old_disk_io.read_bytes) / 1024 / 1024
-            write_speed = (new_disk_io.write_bytes - self.old_disk_io.write_bytes) / 1024 / 1024
-            self.old_disk_io = new_disk_io  # Atualiza a referência para o próximo segundo
-
-            # Coleta de processos individuais
-            processos = []
-            for proc in psutil.process_iter(['pid', 'name']):
-                if proc.info['pid'] in (0, 4):
-                    continue
-                try:
-                    cpu_val = proc.cpu_percent(interval=None) / self.num_cores
-                    ram_val = proc.memory_percent()
-
-                    # Sem o 'if' que tinha antes que considera processos com cpu > 0.0
-                    # Agora coleta TODOS os processos do Windows (Uns 200 a 300 por ai)
-                    processos.append({
-                        'name': proc.info['name'],
-                        'cpu_percent': round(cpu_val, 1),
-                        'ram_percent': round(ram_val, 1)
-                    })
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-
-            # Montando dados para a interface
-
-            dados = {
-                "uptime": uptime_str,
-                "gpu": gpu_info,
-                "cpu_percent": cpu_usage,
-                "ram_percent": ram_usage,
-                "storage_percent": storage_usage,
-                "disk_read_mb": round(read_speed, 1),
-                "disk_write_mb": round(write_speed, 1),
-                "processes": processos,
-                "network": self.net_monitor.get_network_speed(),
-                "ping": self.net_monitor.get_ping(),
-                "net_info": self.net_monitor.get_infrastructure_info()
-            }
-
-            # Retorno dos dados coletados
-            self.dados_atualizados.emit(dados)
-            time.sleep(1)
+                    elapsed = started - previous_at
+                    cpu = psutil.cpu_percent()
+                    cores = psutil.cpu_percent(percpu=True)
+                    cpu_times = psutil.cpu_times_percent()
+                    memory = psutil.virtual_memory()
+                    swap = psutil.swap_memory()
+                    current_disks = psutil.disk_io_counters(perdisk=True) or {}
+                    disks = disk_rates(previous_disks, current_disks, elapsed)
+                    previous_disks, previous_at = current_disks, started
+                    win = counters.sample()
+                    if started - process_at >= 2:
+                        processes, process_at = self._processes(gpu_counters.sample().get("gpu_processes")), started
+                    for disk in disks:
+                        native = win.get("disks", {}).get(disk["name"].removeprefix("PhysicalDrive"))
+                        if native:
+                            disk.update(native)
+                    sample = {
+                        "timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                        "monotonic": started, "interval_ms": elapsed * 1000,
+                        "target_interval_ms": self.interval * 1000,
+                        "uptime": str(datetime.now() - datetime.fromtimestamp(boot_time)).split(".")[0],
+                        "cpu_percent": cpu, "cpu_cores": cores,
+                        "cpu_max_core": max(cores, default=None),
+                        "dpc_percent": getattr(cpu_times, "dpc", None),
+                        "interrupt_percent": getattr(cpu_times, "interrupt", None),
+                        "ram_percent": memory.percent, "ram_available_gb": memory.available / 1024 ** 3,
+                        "ram_total_gb": memory.total / 1024 ** 3, "swap_percent": swap.percent,
+                        "page_reads_s": win.get("page_reads_s"),
+                        "disks": disks,
+                        "processes": processes, "process_age_ms": (started - process_at) * 1000,
+                        "process_sample_monotonic": process_at,
+                        "network": network.get_network_speed(), **self.sensors.snapshot(),
+                    }
+                    sample["collector_ms"] = (time.monotonic() - started) * 1000
+                    with self._lock:
+                        self._latest = sample
+                    if self.on_sample:
+                        self.on_sample(sample)
+                    self.last_error = None
+                except (OSError, psutil.Error) as error:
+                    self.last_error = f"Coleta temporariamente indisponível: {error}"
+                deadline += self.interval
+                if deadline <= time.monotonic():
+                    deadline = time.monotonic() + self.interval
+        except Exception as error:
+            self.last_error = f"Coleta interrompida: {type(error).__name__}: {error}"
+        finally:
+            counters.close()
+            gpu_counters.close()

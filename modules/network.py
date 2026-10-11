@@ -1,109 +1,56 @@
-import psutil
-import time
-import subprocess
+import platform
+import re
 import socket
+import subprocess
+import time
+
+import psutil
+
 
 class NetworkMonitor:
     def __init__(self):
-        # Quando a classe é criada, guarda os dados do momento zero
         self.last_io = psutil.net_io_counters()
-        self.last_time = time.time()
-
-        # (Marco zero: Acumulo de download na sessão)guarda o dado de quando o app abriu
         self.start_io = self.last_io
+        self.last_time = time.monotonic()
 
     def get_network_speed(self):
-        current_io = psutil.net_io_counters()
-        current_time = time.time()
-
-        # --- Cálculo da Velocidade Instantânea ---
-        time_delta = current_time - self.last_time
-        if time_delta == 0:
-            time_delta = 1
-
-        download_mbs = (current_io.bytes_recv - self.last_io.bytes_recv) / time_delta / (1024 * 1024)
-        upload_mbs = (current_io.bytes_sent - self.last_io.bytes_sent) / time_delta / (1024 * 1024)
-
-        # Atualiza a memória de curto prazo para o próximo segundo
-        self.last_io = current_io
-        self.last_time = current_time
-
-        # --- Cálculo do Consumo Acumulado (NOVO) ---
-        # Subtrai o atual pelo start_io (Marco Zero)
-        total_down_mb = (current_io.bytes_recv - self.start_io.bytes_recv) / (1024 * 1024)
-        total_up_mb = (current_io.bytes_sent - self.start_io.bytes_sent) / (1024 * 1024)
-
-        # Retornamos tudo no mesmo dicionário
+        current = psutil.net_io_counters()
+        now = time.monotonic()
+        elapsed = max(now - self.last_time, 0.001)
+        previous = self.last_io or current
+        initial = self.start_io or current
+        self.last_io, self.last_time = current, now
+        if current is None:
+            return {}
         return {
-            'download_mbs': round(download_mbs, 2),
-            'upload_mbs': round(upload_mbs, 2),
-            'total_down_mb': round(total_down_mb, 2), # Adicionado
-            'total_up_mb': round(total_up_mb, 2)      # Adicionado
+            "download_mbs": max(0, current.bytes_recv - previous.bytes_recv) / elapsed / 1024 ** 2,
+            "upload_mbs": max(0, current.bytes_sent - previous.bytes_sent) / elapsed / 1024 ** 2,
+            "total_down_mb": max(0, current.bytes_recv - initial.bytes_recv) / 1024 ** 2,
+            "total_up_mb": max(0, current.bytes_sent - initial.bytes_sent) / 1024 ** 2,
         }
 
-    def get_ping(self):
+    @staticmethod
+    def get_ping():
+        windows = platform.system() == "Windows"
+        command = ["ping", "-n", "1", "-w", "500", "8.8.8.8"] if windows else ["ping", "-n", "-c", "1", "-W", "1", "8.8.8.8"]
         try:
-            # -n 1: Envia apenas 1 pacote
-            # -w 400: Limita a espera em no máximo 400ms (evita travar a thread)
-            # Eu vou usar o IP do DNS do Google (8.8.8.8) por ser o mais estavel para testes
-            comando = ["ping", "-n", "1", "-w", "400", "8.8.8.8"]
+            result = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                                    timeout=1.5, creationflags=0x08000000 if windows else 0)
+            match = re.search(r"(?:time|tempo)\s*([=<])\s*([\d.,]+)\s*ms", result.stdout, re.I)
+            if result.returncode == 0 and match:
+                return {"ms": float(match[2].replace(",", ".")), "less_than": match[1] == "<"}
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
 
-            # Executa o comando de forma oculta e captura o texto de saída
-            resultado = subprocess.run(comando, capture_output=True, text=True, timeout=0.5)
-
-            if resultado.returncode == 0:
-                saida = resultado.stdout
-                # O Windows em português exibe "tempo=XXms", em inglês exibe "time=XXms"
-                if "tempo=" in saida:
-                    tempo_str = saida.split("tempo=")[1].split("ms")[0].strip()
-                    return int(tempo_str)
-                elif "time=" in saida:
-                    tempo_str = saida.split("time=")[1].split("ms")[0].strip()
-                    return int(tempo_str)
-
-            return -1  # Retorna -1 se houver perda de pacote ou timeout
-        except Exception:
-            return -1
-
-    def get_infrastructure_info(self):
-        # Captura o IP Local de forma confiável '-'
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            local_ip = "127.0.0.1"
-
-        # Descobre qual interface de rede está ativa e sua velocidade física
-        nome_interface = "Desconectado"
-        velocidade_link = "0 Mbps"
-
-        stats = psutil.net_if_stats()
-        addrs = psutil.net_if_addrs()
-
-        for interface, stat in stats.items():
-            # Se a interface está de pé (isup) e possui endereços configurados
-            if stat.isup and interface in addrs:
-                # Evita laço de loopback interno
-                if interface.lower() == 'lo' or 'loopback' in interface.lower():
-                    continue
-
-                # Verifica se essa interface ativa possui um IPv4 configurado
-                has_ipv4 = False
-                for addr in addrs[interface]:
-                    if addr.family == socket.AF_INET:
-                        has_ipv4 = True
-                        break
-
-                if has_ipv4:
-                    nome_interface = interface
-                    # O psutil retorna a velocidade em Mbps (ex: 1000 para Gigabit)
-                    velocidade_link = f"{stat.speed//8} MBps" if stat.speed > 0 else "Desconhecida"
-                    break
-
-        return {
-            "local_ip": local_ip,
-            "interface_name": nome_interface,
-            "link_speed": velocidade_link
-        }
+    @staticmethod
+    def get_infrastructure_info():
+        addresses = psutil.net_if_addrs()
+        rows = []
+        for name, stats in psutil.net_if_stats().items():
+            if not stats.isup:
+                continue
+            for address in addresses.get(name, []):
+                if address.family == socket.AF_INET and not address.address.startswith("127."):
+                    rows.append({"name": name, "ip": address.address, "speed_mbps": stats.speed})
+        return rows

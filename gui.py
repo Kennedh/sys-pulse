@@ -1,598 +1,341 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QLabel, QPushButton,
-                               QStackedWidget, QProgressBar, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon,
-                               QMenu, QStyle, QApplication)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QAbstractTableModel, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QLabel, QPushButton, QStackedWidget, QProgressBar, QTabWidget, QTableView,
+    QHeaderView, QSystemTrayIcon, QMenu, QStyle, QPlainTextEdit, QScrollArea)
+
 from modules.hardware import get_hardware_info
-from PySide6.QtCore import QThread, QAbstractTableModel
 from modules.monitor import MonitorWorker
+from modules.diagnostics import SessionRecorder
+from modules.diagnostic_view import DiagnosticPanel, fmt
+from modules.hotkey import GlobalHotkey
+from modules.analysis_view import AnalysisPanel
+
+
+STYLE = """
+QWidget { background: #121722; color: #e6eaf3; font-size: 13px; }
+QLabel#title { font-size: 21px; font-weight: bold; padding: 6px 0; }
+QLabel#card { background: #20293b; border-radius: 7px; padding: 10px; font-size: 14px; }
+QLabel#analysisCard { background: #202d43; border: 1px solid #354867; border-radius: 8px; padding: 14px; font-size: 15px; }
+QLabel#muted { color: #a4b2c9; }
+QLabel#demo { color: #f4c479; padding: 8px 0; font-weight: bold; }
+QTableView { alternate-background-color: #182031; background: #131b29; }
+QPushButton#navigation { text-align: left; padding: 12px; background: #20293b; }
+QPushButton#navigation:checked { background: #425ba8; }
+QPushButton { background: #425ba8; padding: 9px 13px; border: none; border-radius: 5px; }
+QPushButton:hover { background: #566fc2; }
+QPushButton:disabled { background: #242b3a; color: #7b879b; }
+QLineEdit, QComboBox, QPlainTextEdit { background: #191f2e; border: 1px solid #34405a; padding: 6px; }
+QTabWidget::pane { border: 1px solid #34405a; }
+QTabBar::tab { background: #20293b; padding: 8px 16px; }
+QTabBar::tab:selected { background: #425ba8; }
+QHeaderView::section { background: #20293b; padding: 7px; border: none; }
+QTableView { gridline-color: #2c3548; selection-background-color: #425ba8; }
+QProgressBar { border: 1px solid #34405a; border-radius: 4px; text-align: center; min-height: 18px; }
+QProgressBar::chunk { background: #687ddd; }
+"""
 
 
 class ProcessTableModel(QAbstractTableModel):
-    def __init__(self, dados):
-        super().__init__()
-        self.dados = dados
-        # Padrão: Coluna 1 (CPU), do maior para o menor (Descending)
-        self.coluna_ordenacao = 1
-        self.ordem_ordenacao = Qt.DescendingOrder
+    columns = [("pid", "PID"), ("name", "Processo"), ("cpu_percent", "CPU %"),
+               ("ram_percent", "RAM %"), ("rss_mb", "RAM MiB"),
+               ("io_read_mbs", "Ler MiB/s"), ("io_write_mbs", "Gravar MiB/s"), ("gpu_percent", "GPU %")]
 
-    def columnCount(self, parent=None):
-        return 3
-
-    def rowCount(self, parent=None):
-        return len(self.dados['processes'])
-
-    def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            linha = index.row()
-            processo = self.dados['processes'][linha]
-            coluna = index.column()
-
-            if coluna == 0:
-                return processo['name']
-            elif coluna == 1:
-                return f"{processo['cpu_percent']}%"
-            elif coluna == 2:
-                return f"{processo['ram_percent']}%"
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            if section == 0:
-                return "Nome"
-            elif section == 1:
-                return "CPU"
-            elif section == 2:
-                return "RAM"
-
-    def sort(self, column, order):
-        # O Qt chama este metodo automaticamente quando clica no título da tabela!
-        self.coluna_ordenacao = column
-        self.ordem_ordenacao = order
-        self.aplicar_ordenacao()
-
-    def aplicar_ordenacao(self):
-        # Se a lista estiver vazia, não faz nada
-        if not self.dados['processes']:
-            return
-
-        # Descobre qual chave do dicionário usar para ordenar
-        if self.coluna_ordenacao == 0:
-            chave = 'name'
-        elif self.coluna_ordenacao == 1:
-            chave = 'cpu_percent'
-        elif self.coluna_ordenacao == 2:
-            chave = 'ram_percent'
-
-        # Verifica se é do maior para o menor
-        reverso = (self.ordem_ordenacao == Qt.DescendingOrder)
-
-        # ordena a lista baseada na chave escolhida!
-        self.dados['processes'].sort(key=lambda x: x[chave], reverse=reverso)
-
-        # Avisa a interface que os dados mudaram de lugar
-        self.layoutChanged.emit()
-
-    def atualizar_dados(self, novos_dados):
-        self.dados = novos_dados
-        # Agora chama a ordenação em vez do layoutChanged!
-        self.aplicar_ordenacao()
-
-class App(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        self.setWindowTitle("SYS-PULSE - Monitoramento Inteligente")
-        self.resize(1000, 500)
-
-        # Cor de fundo padrãozinho CSS
-        self.setStyleSheet("background-color: #121212;")
-
-        # QWidget é onde tudo ficará
-        central_widget = QWidget()
-
-        # E preciso setar na Classe o widget
-        self.setCentralWidget(central_widget)
-
-        # Layout Horizontal com QHBoxLayout e dentro vai o widget central
-        self.main_layout = QHBoxLayout(central_widget)
-
-        # Para não ter mangem e a interface encostar na ponta da janelea
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-
-        # Criação do frame da esquerda
-        self.sidebar = QFrame()
-        self.sidebar.setFixedWidth(200)
-        self.sidebar.setStyleSheet("background-color: #1e1e1e;")
-
-        # Layout vertical pra ficar dentro do sidebar
-        self.frame_botoes = QVBoxLayout(self.sidebar)
-
-        # Logo
-        self.logo_label = QLabel("SYS-PULSE")
-        self.logo_label.setStyleSheet("""
-                                      QLabel {
-                                          color: white;
-                                          font-weight: bold;
-                                          font-size: 30px
-                                      }
-                                      """)
-        self.logo_label.setAlignment(Qt.AlignCenter)
-        self.logo_label.setFixedHeight(100)
-
-        # Botões
-        self.btn_hardware = QPushButton("HARDWARE")
-        self.btn_hardware.setStyleSheet("""
-                                        QPushButton {
-                                            background-color: #425BA8;
-                                            color: white;
-                                            font-weight: bold;
-                                            border-radius: 5px;
-                                            padding: 10px;
-                                        }
-                                        QPushButton:hover {
-                                            background-color: #536bc2;
-                                        }
-                                    """)
-
-        self.btn_hardware.clicked.connect(self.mostrar_hardware)
-
-        self.btn_monitor = QPushButton("LIVE MONITOR")
-        self.btn_monitor.setStyleSheet("""
-                                       QPushButton {
-                                           background-color: #425BA8;
-                                           color: white;
-                                           font-weight: bold;
-                                           border-radius: 5px;
-                                           padding: 10px;
-                                       }
-                                       QPushButton:hover {
-                                           background-color: #536bc2;
-                                       }
-                                    """)
-
-        self.btn_rede = QPushButton("REDE")
-        self.btn_rede.setStyleSheet(self.btn_hardware.styleSheet())  # Copia o estilo para ser mais rápido
-        self.btn_rede.clicked.connect(self.mostrar_rede)
-
-        # Frame da direita onde vou colocar os módulos
-        self.main_frame = QFrame()
-        self.main_frame.setStyleSheet("background-color: #121212;")
-
-        # Frame para o conteudo dos modulos dentro main_frame
-        self.frame_modulos = QVBoxLayout(self.main_frame)
-
-        # Onde ficaram as janelas de cada modulo
-        self.telas = QStackedWidget()
-
-        # Label do frame da direita utilizando o sistema de "baralho" no qual vai empilhando as telas
-
-        self.telas = QStackedWidget()
-
-        # ==== COLOCANDO O CONTEUDO NA TELA ====
-
-        # Colocar os botões e a label dentro frame vertical
-        self.frame_botoes.addWidget(self.logo_label)
-        self.frame_botoes.addWidget(self.btn_hardware)
-        self.frame_botoes.addWidget(self.btn_monitor)
-        self.frame_botoes.addWidget(self.btn_rede)
-
-        self.frame_botoes.addStretch() # Empurra tudo para cima
-
-        # Coloca a label no frame dos modulos
-        self.frame_modulos.addWidget(self.telas)
-
-        # Criando as páginas para os modulos
-        self.tela_inicial = QWidget()
-        self.tela_hardware = QWidget()
-        self.tela_monitor = QWidget()
-
-        # Colocando no baralho
-        self.telas.addWidget(self.tela_inicial)  # Carta 0
-        self.telas.addWidget(self.tela_hardware)  # Carta 1
-        self.telas.addWidget(self.tela_monitor)  # Carta 2
-
-        # Tela Incial
-        layout_inicial = QVBoxLayout(self.tela_inicial)
-        label_inicial = QLabel("Selecione um módulo no menu lateral.")
-        label_inicial.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label_inicial.setStyleSheet("""
-                                    QLabel {
-                                        color: white;
-                                        font-weight: bold;
-                                        font-size: 20px;
-                                    }
-                                    """)
-        layout_inicial.addWidget(label_inicial)
-
-        # Tela do Hardware
-        layout_hardware = QVBoxLayout(self.tela_hardware)
-        self.label_hardware = QLabel()
-        self.label_hardware.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.label_hardware.setStyleSheet("""
-                                          QLabel {
-                                              color: white;
-                                              font-weight: bold;
-                                              font-size: 16px;
-                                              font-family: Consolas, monospace;
-                                          }
-                                          """)
-        layout_hardware.addWidget(self.label_hardware)
-
-        # Abas
-        self.abas_monitor = QTabWidget()
-
-        self.abas_monitor.setStyleSheet("""
-                    QTabWidget::pane { border: none; }
-                    QTabBar::tab { background: #1e1e1e; color: #888; padding: 10px 30px; font-weight: bold; font-size: 14px;}
-                    QTabBar::tab:hover { background: #333; color: white; }
-                    QTabBar::tab:selected { background: #425BA8; color: white; }
-                """)
-
-        # Cada aba é adicionado como Widget
-        self.aba_recursos = QWidget()
-        self.aba_processos = QWidget()
-
-        self.abas_monitor.addTab(self.aba_recursos, "Recursos")
-        self.abas_monitor.addTab(self.aba_processos, "Processos")
-
-        layout_base_monitor = QVBoxLayout(self.tela_monitor)
-        layout_base_monitor.addWidget(self.abas_monitor)
-
-        # Tela de recursos
-        layout_recursos = QVBoxLayout(self.aba_recursos)
-
-        # Tempo de boot
-        self.label_uptime = QLabel()
-        self.label_uptime.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_uptime.setStyleSheet("""
-                                        QLabel {
-                                            color: white;
-                                            font-weight: bold;
-                                            font-size: 18px;
-                                            font: monospace;
-                                        }
-                                        """)
-        self.label_uptime.setFixedHeight(50)
-        layout_recursos.addWidget(self.label_uptime)
-
-        # CPU Label e Progress Bar
-        self.label_cpu = QLabel()
-        self.label_cpu.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_cpu.setStyleSheet("""
-                                     QLabel {
-                                         color: white;
-                                         font-weight: bold;
-                                         font-size: 16px;
-                                         font-family: Consolas, monospace;
-                                     }
-                                     """)
-        layout_recursos.addWidget(self.label_cpu)
-
-        self.barra_cpu = QProgressBar()
-        self.barra_cpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
-        self.barra_cpu.setValue(0)
-        layout_recursos.addWidget(self.barra_cpu)
-
-        # RAM Label e Progress Bar
-        self.label_ram = QLabel()
-        self.label_ram.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_ram.setStyleSheet("""
-                                     QLabel {
-                                         color: white;
-                                         font-weight: bold;
-                                         font-size: 16px;
-                                         font-family: Consolas, monospace;
-                                     }
-                                     """)
-        layout_recursos.addWidget(self.label_ram)
-
-        self.barra_ram = QProgressBar()
-        self.barra_ram.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
-        self.barra_ram.setValue(0)
-        layout_recursos.addWidget(self.barra_ram)
-
-        # GPU Label e progress bar
-        self.label_gpu = QLabel()
-        self.label_gpu.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_gpu.setStyleSheet("""
-                                             QLabel {
-                                                 color: white;
-                                                 font-weight: bold;
-                                                 font-size: 16px;
-                                                 font-family: Consolas, monospace;
-                                             }
-                                             """)
-        layout_recursos.addWidget(self.label_gpu)
-
-        self.barra_gpu = QProgressBar()
-        self.barra_gpu.setRange(0, 100)  # Define que a barra trabalha com porcentagem (0 a 100)
-        self.barra_gpu.setValue(0)
-        layout_recursos.addWidget(self.barra_gpu)
-
-        #Discos
-        self.label_discos = QLabel()
-        self.label_discos.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_discos.setStyleSheet("""
-                                        QLabel {
-                                            color: white;
-                                            font-weight: bold;
-                                            font-size: 16px;
-                                            font-family: Consolas, monospace;
-                                        }
-                                        """)
-        self.label_discos.setText("DISCOS")
-        self.label_discos.setFixedHeight(20)
-        layout_recursos.addWidget(self.label_discos)
-
-        # Velocidade de Leitura e Escrita dos Discos
-        self.label_disk_speed = QLabel()
-        self.label_disk_speed.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_disk_speed.setStyleSheet("""
-                                            QLabel {
-                                                color: white;
-                                                font-weight: bold;
-                                                font-size: 16px;
-                                                font-family: Consolas, monospace;
-                                            }
-                                            """)
-        self.label_disk_speed.setFixedHeight(50)
-        layout_recursos.addWidget(self.label_disk_speed)
-
-        # Armazenamento utilizado em cada disco
-        self.barras_discos = {}
-
-        self.layout_discos = QVBoxLayout()
-        self.layout_discos.setSpacing(15)
-
-        layout_recursos.addLayout(self.layout_discos)
-
-        # Empurra tudo para cima
-        layout_recursos.addStretch()
-        self.frame_modulos.addStretch()
-
-        # Agora para colocar os dois frames
-        self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.main_frame)
-
-        # === LIVE MONITOR ===
-
-        # Criação de um Thread especifico para o monitor
-        self.thread_monitor = QThread()
-        self.worker_monitor = MonitorWorker()
-
-        # Mover o worker de dados do monitor para dentro do thread
-        self.worker_monitor.moveToThread(self.thread_monitor)
-
-        # Quando a thread iniciar, ela deve rodar o método run do worker
-        self.thread_monitor.started.connect(self.worker_monitor.run)
-
-        # Pegar os dados atualizados e jogar na tela
-        self.worker_monitor.dados_atualizados.connect(self.atualizar_tela_monitor)
-
-        # Adição de evento ao botão
-        self.btn_monitor.clicked.connect(self.mostrar_monitor)
-
-        # PROCESSOS
-        layout_processos = QVBoxLayout(self.aba_processos)
-
-        self.view_processos = QTableView()
-        self.view_processos.setStyleSheet("""
-                    QTableView { background-color: #121212; color: white; gridline-color: #333; border: none; font-size: 13px;}
-                    QHeaderView::section { background-color: #1e1e1e; color: white; padding: 5px; border: 1px solid #333; font-weight: bold; font-size: 13px;}
-                    QTableView::item:selected { background-color: #425BA8; }
-                """)
-        layout_processos.addWidget(self.view_processos)
-
-        # Cria a view vazia para depois popular os dados
-        dados_vazios = {'processes': []}
-        self.modelo_processos = ProcessTableModel(dados_vazios)
-
-        # Conecta ao modelo de dados
-        self.view_processos.setModel(self.modelo_processos)
-
-        # Ordenação da view
-        self.view_processos.setSortingEnabled(True)
-
-        # Ajustar tamanho da coluna na View
-        header = self.view_processos.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-
-        # Icone da bandeja
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
-
-        # Menu do TrayIcon
-        tray_menu = QMenu()
-
-        # Opções clicaveis
-        action_restaurar = QAction("Restaurar", self)
-        action_sair = QAction("Sair", self)
-
-        # Reabre a janela
-        action_restaurar.triggered.connect(self.show)
-
-        # Para fechar é necessário chamar o motor da aplicação que está na Main (QApplication)
-        action_sair.triggered.connect(QApplication.instance().quit)
-
-        # Adiciona as ações dentro do menu
-        tray_menu.addAction(action_restaurar)
-        tray_menu.addAction(action_sair)
-
-        # cola o menu no nosso ícone da bandeja!
-        self.tray_icon.setContextMenu(tray_menu)
-
-        # === NETWORK ===
-        # Criar a página
-        self.tela_rede = QWidget()
-        self.telas.addWidget(self.tela_rede)  # Será a Carta 3 do baralho
-
-        # Layout da Tela de Rede
-        layout_rede = QVBoxLayout(self.tela_rede)
-
-        # Label de Download
-        self.label_download = QLabel("Download: 0.00 MB/s")
-        self.label_download.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_download.setStyleSheet("""
-                                                QLabel {
-                                                    color: #4CAF50; /* Verde estilo Matrix/Hacker */
-                                                    font-weight: bold;
-                                                    font-size: 24px;
-                                                    font-family: Consolas, monospace;
-                                                }
-                                                """)
-        layout_rede.addWidget(self.label_download)
-
-        # Label de Upload
-        self.label_upload = QLabel("Upload: 0.00 MB/s")
-        self.label_upload.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_upload.setStyleSheet("""
-                                                QLabel {
-                                                    color: #2196F3; /* Azul */
-                                                    font-weight: bold;
-                                                    font-size: 24px;
-                                                    font-family: Consolas, monospace;
-                                                }
-                                                """)
-        layout_rede.addWidget(self.label_upload)
-
-        # Label de Ping
-        self.label_ping = QLabel("Ping: -- ms")
-        self.label_ping.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_ping.setStyleSheet("""
-                                                        QLabel {
-                                                            color: #FFC107; /* Amarelo/Laranja para destacar */
-                                                            font-weight: bold;
-                                                            font-size: 24px;
-                                                            font-family: Consolas, monospace;
-                                                        }
-                                                        """)
-        layout_rede.addWidget(self.label_ping)
-
-        # Label de Consumo Acumulado (Sessão)
-        self.label_acumulado = QLabel("Sessão Atual - Down: 0.0 MB | Up: 0.0 MB")
-        self.label_acumulado.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_acumulado.setStyleSheet("""
-                                                        QLabel {
-                                                            color: #B0BEC5; /* Cinza claro para não roubar a atenção */
-                                                            font-weight: bold;
-                                                            font-size: 16px;
-                                                            font-family: Consolas, monospace;
-                                                            margin-top: 20px; /* Dá um pequeno respiro entre o ping e o rodapé */
-                                                        }
-                                                        """)
-        layout_rede.addWidget(self.label_acumulado)
-
-        # Label de Infraestrutura de Rede
-        self.label_net_info = QLabel("Adaptador: -- | Velocidade do Link: -- | IP Local: --")
-        self.label_net_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_net_info.setStyleSheet("""
-                                                        QLabel {
-                                                            color: #00BCD4; /* Ciano/Azul claro para diferenciar */
-                                                            font-weight: bold;
-                                                            font-size: 15px;
-                                                            font-family: Consolas, monospace;
-                                                            margin-top: 25px;
-                                                        }
-                                                        """)
-        layout_rede.addWidget(self.label_net_info)
-        layout_rede.addStretch()  # Empurra os textos para cima
-
-    def mostrar_hardware(self):
-        self.telas.setCurrentIndex(1)
-        self.label_hardware.setText(f"{get_hardware_info()}")
-
-    def atualizar_tela_monitor(self, dados):
-        self.label_uptime.setText(f"Tempo desde o Boot: {dados['uptime']}")
-        self.label_cpu.setText(f"Uso de CPU: {dados['cpu_percent']}%")
-        self.barra_cpu.setValue(int(dados['cpu_percent']))
-        self.label_ram.setText(f"Uso de RAM: {dados['ram_percent']}%")
-        self.barra_ram.setValue(int(dados['ram_percent']))
-        self.label_gpu.setText(f"GPU\n\nMemória Utilizada: {dados['gpu']['memory']} GB Temperatura: {dados['gpu']['temperature']} º\n\n"
-                               f"Uso: {dados['gpu']['percent']}%")
-        self.barra_gpu.setValue(int(dados['gpu']['percent']))
-        self.label_disk_speed.setText(f"Leitura: {dados['disk_read_mb']} MB/s Escrita: {dados['disk_write_mb']} MB/s")
-
-        # Discos
-        for info in dados['storage_percent']:
-            nome_disco = info['disco']
-            uso_percent = int(info['percent'])
-            total = info['total']
-            utilizado = info['used']
-            livre = info['free']
-
-            # Verifica se o disco já está no dicionario criado no __init__
-            # Se sim atualiza os valores da label e progress bar
-            if nome_disco in self.barras_discos:
-                label_disco, barra_disco = self.barras_discos[nome_disco]
-                label_disco.setText(f"{nome_disco} Total: {total} GB Livre: {livre} GB Utilizado: {utilizado} GB ({uso_percent}%)")
-                barra_disco.setValue(uso_percent)
-
-            # Se não é criado e configurado cada label e progress bar
-            else:
-                label_disco = QLabel()
-                label_disco.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                label_disco.setStyleSheet("""
-                                              QLabel {
-                                                  color: white;
-                                                  font-size: 14px;
-                                                  font-family: DejaVu Sans Mono, monospace;
-                                              }
-                                              """)
-                label_disco.setText(f"{nome_disco} Total: {total} GB Livre: {livre} GB Utilizado: {utilizado} GB ({uso_percent}%)")
-
-                barra_disco = QProgressBar()
-                barra_disco.setRange(0, 100)
-                barra_disco.setValue(uso_percent)
-
-                self.layout_discos.addWidget(label_disco)
-                self.layout_discos.addWidget(barra_disco)
-
-                self.barras_discos[nome_disco] = (label_disco, barra_disco)
-
-        # Atualizar dados da view
-        self.modelo_processos.atualizar_dados(dados)
-
-        # Extrai os dados de rede do dicionário
-        vel_down = dados['network']['download_mbs']
-        vel_up = dados['network']['upload_mbs']
-        ping = dados.get('ping', -1)
-
-        # Atualiza as labels
-        self.label_download.setText(f"Download: {vel_down} MB/s")
-        self.label_upload.setText(f"Upload: {vel_up} MB/s")
-
-        if ping != -1:
-            self.label_ping.setText(f"Ping: {ping} ms")
+        self.rows = []
+        self.sort_column = 2
+        self.sort_order = Qt.DescendingOrder
+
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=None):
+        return len(self.columns)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or not 0 <= index.row() < len(self.rows):
+            return None
+        if role == Qt.DisplayRole:
+            value = self.rows[index.row()].get(self.columns[index.column()][0])
+            return "N/D" if value is None else f"{value:.2f}" if isinstance(value, float) else value
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return self.columns[section][1]
+
+    def sort(self, column, order):
+        self.sort_column, self.sort_order = column, order
+        self.update_rows(self.rows)
+
+    def update_rows(self, rows):
+        self.beginResetModel()
+        key = self.columns[self.sort_column][0]
+        available = [row for row in rows if row.get(key) is not None]
+        missing = [row for row in rows if row.get(key) is None]
+        self.rows = sorted(available, key=lambda row: row[key], reverse=self.sort_order == Qt.DescendingOrder) + missing
+        self.endResetModel()
+
+
+class App(QMainWindow):
+    recording_status = Signal(dict)
+    hardware_ready = Signal(str)
+
+    def __init__(self, demo=False):
+        super().__init__()
+        self.demo = demo
+        self.setWindowTitle("SYS-PULSE 2.0 — Monitoramento e análise" + (" — DADOS SIMULADOS" if demo else ""))
+        self.resize(1340, 900)
+        self.setMinimumSize(1080, 740)
+        self.setStyleSheet(STYLE)
+        self._closed = False
+        self._last_sample = self._last_processes = None
+        self._last_paint = 0
+        self._hardware_loaded = False
+        self._last_marker = 0
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QHBoxLayout(central)
+        sidebar = QWidget()
+        sidebar.setFixedWidth(180)
+        navigation = QVBoxLayout(sidebar)
+        logo = QLabel("SYS-PULSE")
+        logo.setObjectName("title")
+        navigation.addWidget(logo)
+        navigation.addWidget(QLabel("Performance sob análise\nv2.0.0"))
+        self.pages = QStackedWidget()
+        layout.addWidget(sidebar)
+        layout.addWidget(self.pages, 1)
+        self.hardware = QPlainTextEdit("Carregando informações de hardware…")
+        self.hardware.setReadOnly(True)
+        self.pages.addWidget(self.hardware)
+        self.monitor = QTabWidget()
+        self.pages.addWidget(self.monitor)
+        resources = QWidget()
+        resource_layout = QVBoxLayout(resources)
+        self.uptime = QLabel()
+        resource_layout.addWidget(self.uptime)
+        self.resource_labels, self.bars = {}, {}
+        for key in ("CPU", "RAM"):
+            self.resource_labels[key] = QLabel()
+            self.bars[key] = QProgressBar()
+            resource_layout.addWidget(self.resource_labels[key])
+            resource_layout.addWidget(self.bars[key])
+        self.resource_text = QPlainTextEdit()
+        self.resource_text.setReadOnly(True)
+        resource_layout.addWidget(self.resource_text, 1)
+        self.monitor.addTab(resources, "Recursos")
+        self.process_table = QTableView()
+        self.process_model = ProcessTableModel()
+        self.process_table.setModel(self.process_model)
+        self.process_table.setSortingEnabled(True)
+        self.process_table.sortByColumn(2, Qt.DescendingOrder)
+        self.process_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.monitor.addTab(self.process_table, "Processos")
+        self.network = QPlainTextEdit()
+        self.network.setReadOnly(True)
+        self.pages.addWidget(self.network)
+        self.diagnostic = DiagnosticPanel()
+        diagnostic_scroll = QScrollArea()
+        diagnostic_scroll.setWidgetResizable(True)
+        diagnostic_scroll.setWidget(self.diagnostic)
+        self.pages.addWidget(diagnostic_scroll)
+        self.analysis = AnalysisPanel()
+        self.pages.addWidget(self.analysis)
+        self.nav_buttons = []
+        for index, name in enumerate(("HARDWARE", "LIVE MONITOR", "REDE", "CAPTURA", "ANÁLISE")):
+            button = QPushButton(name)
+            button.setObjectName("navigation")
+            button.setCheckable(True)
+            self.nav_buttons.append(button)
+            button.clicked.connect(lambda checked=False, i=index: self.show_page(i))
+            navigation.addWidget(button)
+        navigation.addStretch()
+        if demo:
+            badge = QLabel("DEMONSTRAÇÃO\nDados simulados")
+            badge.setObjectName("demo")
+            navigation.addWidget(badge)
+        quit_button = QPushButton("Sair")
+        quit_button.clicked.connect(QApplication.instance().quit)
+        navigation.addWidget(quit_button)
+        self.recording_status.connect(self.diagnostic.set_status)
+        self.recording_status.connect(self.on_recording_status)
+        self.hardware_ready.connect(self.hardware.setPlainText)
+        self.recorder = SessionRecorder(self.recording_status.emit)
+        if demo:
+            from modules.demo import DemoMonitor
+            self.worker_monitor = DemoMonitor()
+            self.diagnostic.start.setEnabled(False)
+            self.diagnostic.folder.setText("Demonstração — arquivos não são gravados")
+            self.diagnostic.choose.setEnabled(False)
+            self.diagnostic.interval.setEnabled(False)
+            self.diagnostic.lhm.setEnabled(False)
+            self.diagnostic.status.setText("Demonstração · dados simulados · gravação desativada")
+            for sample in self.worker_monitor.samples:
+                self.diagnostic.chart.add(sample)
+            for event in self.worker_monitor.markers:
+                self.diagnostic.chart.markers.append(event["monotonic"])
+                self.diagnostic.events.appendPlainText(f"#{event['id']} · {event['timestamp']}\n{event['note']}")
         else:
-            self.label_ping.setText("Ping: Falha/Timeout")
+            self.worker_monitor = MonitorWorker(self.recorder.submit)
+        self.diagnostic.start_requested.connect(lambda options: self.send_command("start", options))
+        self.diagnostic.stop_requested.connect(lambda: self.send_command("stop"))
+        self.diagnostic.mark_requested.connect(self.mark_stutter)
+        self.diagnostic.analyze_requested.connect(self.analyze_capture)
+        self.diagnostic.interval_changed.connect(lambda interval: setattr(self.worker_monitor, "interval", interval))
+        self.diagnostic.lhm_changed.connect(lambda enabled: setattr(self.worker_monitor.sensors, "lhm_enabled", enabled))
+        self.hotkey = GlobalHotkey(QApplication.instance(), self.mark_stutter)
+        self.diagnostic.hotkey_status.setText("Ctrl + Alt + F8: atalho global ativo" if self.hotkey.registered else self.hotkey.error)
+        if not self.hotkey.registered:
+            self.shortcut = QShortcut(QKeySequence("Ctrl+Alt+F8"), self)
+            self.shortcut.activated.connect(self.mark_stutter)
+        self.tray = QSystemTrayIcon(self.style().standardIcon(QStyle.SP_ComputerIcon), self)
+        menu = QMenu(self)
+        for name, callback in (("Restaurar", self.restore), ("Marcar travadinha", self.mark_stutter),
+                               ("Encerrar gravação", lambda: self.send_command("stop")), ("Sair", QApplication.instance().quit)):
+            action = QAction(name, self)
+            action.triggered.connect(callback)
+            menu.addAction(action)
+        self.tray.setContextMenu(menu)
+        self.tray.setToolTip("SysPulse · Ctrl+Alt+F8 marca uma travadinha durante a gravação")
+        self.tray.activated.connect(lambda reason: self.restore() if reason == QSystemTrayIcon.DoubleClick else None)
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray.show()
+        self.timer = QTimer(self)
+        self.timer.setInterval(250)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start()
+        QApplication.instance().aboutToQuit.connect(self.shutdown)
+        self.worker_monitor.start()
+        self.show_page(3)
+        if demo:
+            self.analyze_capture(str(Path(__file__).parent / "examples" / "sessao-demo"))
 
-        # --- Lógica de Consumo Acumulado ---
-        total_down = dados['network']['total_down_mb']
-        total_up = dados['network']['total_up_mb']
-        # Formatação inteligente: se passar de 1024 MB, divide por 1024 e mostra em GB
-        str_down = f"{total_down / 1024:.2f} GB" if total_down >= 1024 else f"{total_down} MB"
-        str_up = f"{total_up / 1024:.2f} GB" if total_up >= 1024 else f"{total_up} MB"
-        self.label_acumulado.setText(f"Sessão Atual - Down: {str_down} | Up: {str_up}")
+    def on_recording_status(self, status):
+        if status.get("completed") and status.get("count") and not self._closed:
+            self.analyze_capture(status["path"], auto_save=True)
 
-        # Extrai os dados de infraestrutura
-        net_info = dados.get('net_info', {})
-        ip_interno = net_info.get('local_ip', '--')
-        nome_adaptador = net_info.get('interface_name', '--')
-        vel_link = net_info.get('link_speed', '--')
+    def analyze_capture(self, source, auto_save=False):
+        self.show_page(4)
+        self.analysis.load(source, auto_save)
 
-        # Atualiza a nova label
-        self.label_net_info.setText(f"Interface: {nome_adaptador} | Link: {vel_link} | IP Local: {ip_interno}")
+    def show_page(self, index):
+        self.pages.setCurrentIndex(index)
+        for i, button in enumerate(self.nav_buttons):
+            button.setChecked(i == index)
+        if index == 0 and not self._hardware_loaded:
+            self._hardware_loaded = True
+            threading.Thread(target=self.load_hardware, name="sys-pulse-hardware", daemon=True).start()
+        self._last_paint = 0
 
-    def mostrar_monitor(self):
-        self.telas.setCurrentIndex(2)
-        self.thread_monitor.start()
+    def load_hardware(self):
+        try:
+            report = ("DEMONSTRAÇÃO — DADOS SIMULADOS\n\nSistema: Windows 11\nCPU: processador de demonstração (6 núcleos / 12 threads)\n"
+                      "RAM: 32 GiB\nGPU: GPU de demonstração\n\nExecute sem --demo para consultar seu hardware." if self.demo else get_hardware_info())
+        except Exception as error:
+            report = f"Não foi possível consultar o hardware: {error}"
+        if not self._closed:
+            self.hardware_ready.emit(report)
+
+    def send_command(self, kind, payload=None):
+        if not self.recorder.command(kind, payload):
+            self.diagnostic.set_status({"active": self.recorder.active.is_set(), "path": str(self.recorder.path or ""),
+                                        "message": "Gravador ocupado. Tente novamente; o comando não foi registrado.", "error": True})
+
+    def mark_stutter(self):
+        now = time.monotonic()
+        if not self.recorder.active.is_set() or now - self._last_marker < 0.5:
+            return
+        self._last_marker = now
+        self.send_command("mark", {"timestamp": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                                  "monotonic": now, "note": self.diagnostic.note.text()[:500]})
+
+    def refresh(self):
+        sample = self.worker_monitor.latest()
+        if sample is None:
+            self.statusBar().showMessage(self.worker_monitor.last_error or "Inicializando coleta…")
+            return
+        age = time.monotonic() - sample["monotonic"]
+        message = self.worker_monitor.last_error or (f"Coleta sem atualização há {age:.1f} s" if age > 3 else
+                  "Coleta ativa · fechar a janela minimiza para a bandeja quando disponível")
+        self.statusBar().showMessage(message)
+        if sample is not self._last_sample:
+            self.diagnostic.chart.add(sample)
+            self._last_sample = sample
+        if not self.isVisible() or self.isMinimized() or time.monotonic() - self._last_paint < 0.5:
+            return
+        self._last_paint = time.monotonic()
+        page = self.pages.currentIndex()
+        if page == 3:
+            self.diagnostic.update_sample(sample)
+        elif page == 1:
+            self.update_resources(sample)
+            if sample["processes"] is not self._last_processes:
+                self.process_model.update_rows(sample["processes"])
+                self._last_processes = sample["processes"]
+        elif page == 2:
+            self.update_network(sample)
+
+    def update_resources(self, sample):
+        self.uptime.setText(f"Tempo desde o boot: {sample['uptime']}")
+        for key, field in (("CPU", "cpu_percent"), ("RAM", "ram_percent")):
+            self.resource_labels[key].setText(f"{key}: {fmt(sample[field], '%')}")
+            self.bars[key].setValue(round(sample[field]))
+        lines = [f"Núcleo mais ocupado: {fmt(sample['cpu_max_core'], '%')}",
+                 f"RAM disponível: {fmt(sample['ram_available_gb'], ' GiB')}", "", "GPUs"]
+        for gpu in sample.get("gpus", []):
+            lines.append(f"{gpu['name']}: {fmt(gpu.get('percent'), '%')} | {fmt(gpu.get('temperature'), ' °C')} | "
+                         f"VRAM {fmt(gpu.get('memory_used_mb'), '', 0)}/{fmt(gpu.get('memory_total_mb'), ' MiB', 0)}")
+        if not sample.get("gpus"):
+            lines.append("N/D — NVIDIA usa NVML; AMD/Intel podem fornecer sensores via LibreHardwareMonitor.")
+        lines += ["", "ATIVIDADE DOS DISCOS"]
+        for disk in sample["disks"]:
+            lines.append(f"{disk['name']}: leitura {fmt(disk['read_mbs'], ' MiB/s')} | escrita {fmt(disk['write_mbs'], ' MiB/s')} | "
+                         f"atividade {fmt(disk['active_percent'], '%')} | latência R/W {fmt(disk['read_ms'])}/{fmt(disk['write_ms'])} ms/op")
+        lines += ["", "ESPAÇO DAS PARTIÇÕES (atualização a cada 30 s)"]
+        for disk in sample["storage_percent"]:
+            lines.append(f"{disk['disco']}: {fmt(disk['percent'], '%')} ocupado | livre {fmt(disk['free'], ' GiB')} / {fmt(disk['total'], ' GiB')}")
+        self.resource_text.setPlainText("\n".join(lines))
+
+    def update_network(self, sample):
+        network = sample["network"]
+        ping = sample.get("ping")
+        ping_text = ("<" if ping.get("less_than") else "") + fmt(ping.get("ms"), " ms") if ping else "N/D — timeout ou ICMP indisponível"
+        lines = ["REDE", "", f"Download: {fmt(network.get('download_mbs'), ' MiB/s', 2)}",
+                 f"Upload: {fmt(network.get('upload_mbs'), ' MiB/s', 2)}",
+                 f"Total recebido: {fmt(network.get('total_down_mb'), ' MiB')}",
+                 f"Total enviado: {fmt(network.get('total_up_mb'), ' MiB')}",
+                 f"Ping 8.8.8.8 (aprox. 5 s): {ping_text}", "", "INTERFACES ATIVAS"]
+        lines += [f"{item['name']} | {item['ip']} | {item['speed_mbps']} Mbps" for item in sample.get("net_info", [])]
+        lines += ["", "Tráfego agregado das interfaces. VPNs/adaptadores virtuais podem duplicar contagem.",
+                  "Ping não mede FPS nem a latência específica do jogo."]
+        self.network.setPlainText("\n".join(lines))
+
+    def restore(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     def closeEvent(self, event):
-        event.ignore()
-        self.hide()
-        self.tray_icon.show()
+        if QSystemTrayIcon.isSystemTrayAvailable() and not self._closed:
+            event.ignore()
+            self.hide()
+        else:
+            self.shutdown()
+            event.accept()
 
-    def mostrar_rede(self):
-        self.telas.setCurrentIndex(3)
-        self.thread_monitor.start()
+    def shutdown(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.timer.stop()
+        self.hotkey.close()
+        self.worker_monitor.stop()
+        self.recorder.shutdown()
+        self.analysis.shutdown()
+        self.tray.hide()
