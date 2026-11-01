@@ -32,7 +32,10 @@ def download(url, target, expected):
 def signature(path):
     literal = str(path).replace("'", "''")
     command = "$s = Get-AuthenticodeSignature -LiteralPath '" + literal + "'; if ($s.Status -ne 'Valid') { exit 1 }"
-    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], check=True)
+    shell = shutil.which("pwsh") or "powershell"
+    environment = dict(os.environ)
+    environment.pop("PSModulePath", None)
+    subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", command], check=True, env=environment)
 
 
 def main():

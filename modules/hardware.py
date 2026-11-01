@@ -4,13 +4,15 @@ import subprocess
 
 import psutil
 
+from modules.powershell import powershell_environment
+
 
 def executar_powershell(comando):
     try:
         result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " + comando],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=18,
-            creationflags=0x08000000 if platform.system() == "Windows" else 0)
+            creationflags=0x08000000 if platform.system() == "Windows" else 0, env=powershell_environment())
         return result.stdout.strip() if result.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None

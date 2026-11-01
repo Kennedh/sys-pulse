@@ -41,7 +41,7 @@ A primeira abertura oferece análise integrada, modelo local ou IA anônima. Os 
 
 O pacote declara macOS 13 como mínimo, mas a validação nativa de build ocorre em macOS 15. O Ollama atual requer macOS 14 ou superior. Sensores Apple e dados detalhados de drivers não são medidos pelas fontes Windows/NVML.
 
-Para remover o aplicativo, retire SysPulse.app da pasta de instalação. Prefências, capturas e modelos ficam fora do bundle e são mantidos.
+Para remover o aplicativo, retire SysPulse.app da pasta de instalação. Preferências, capturas e modelos ficam fora do bundle e são mantidos.
 
 ## Modelos e espaço
 

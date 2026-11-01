@@ -1,3 +1,4 @@
+from modules.powershell import powershell_environment
 import json
 import platform
 import subprocess
@@ -111,7 +112,7 @@ def inspect_system():
         script = Path(__file__).with_name("inspect_windows.ps1").read_text(encoding="utf-8")
         result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                                 capture_output=True, text=True, encoding="utf-8-sig", errors="replace",
-                                timeout=45, creationflags=0x08000000)
+                                timeout=45, creationflags=0x08000000, env=powershell_environment())
         if result.returncode:
             raise ValueError(result.stderr.strip()[:500] or "PowerShell não concluiu a consulta")
         sections = json.loads(result.stdout)

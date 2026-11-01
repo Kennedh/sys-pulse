@@ -127,7 +127,10 @@ def checksums(output):
     lines = []
     for path in files:
         with path.open("rb") as source:
-            digest = hashlib.file_digest(source, "sha256").hexdigest()
+            hasher = hashlib.sha256()
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                hasher.update(block)
+            digest = hasher.hexdigest()
         lines.append(digest + "  " + path.name)
     (output / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
