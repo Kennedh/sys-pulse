@@ -1,4 +1,4 @@
-# SysPulse 3.2
+# SysPulse 3.3
 
 **Grave o desempenho, marque o sintoma e investigue as evidências.**
 
@@ -14,12 +14,12 @@ Os prints e a sessão de demonstração usam **dados simulados**, identificados 
 
 Os arquivos ficam em **Releases → Assets** no GitHub. Modelos de IA não acompanham o instalador.
 
-| Sistema | Arquivo da versão 3.2 | Instalação |
+| Sistema | Arquivo da versão 3.3 | Instalação |
 |---|---|---|
-| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
-| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
-| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
-| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
+| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
+| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
+| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
+| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
 
 A seção Assets também oferece ZIP portátil no Windows, TAR.GZ no Linux, DMG no macOS e SHA256SUMS.txt para conferir a integridade. No DMG, arraste o aplicativo para a pasta desejada. A disponibilidade de cada arquivo depende de seu build nativo concluir com sucesso.
 
@@ -136,20 +136,48 @@ Em **Configurações**, os quatro botões indicam a origem: **Integrada**, **Onl
 
 Ao conectar, o catálogo é buscado automaticamente. No modo local, o Ollama instalado é detectado ou iniciado sem carregar pesos. A lista mostra modelos instalados; os downloads ficam recolhidos em **Adicionar um modelo local**. O modelo do catálogo de download só passa a ser usado depois de baixar.
 
-O cartão **EM USO** confirma provedor, modelo e se a disponibilidade foi conferida. Trocar o modelo disponível aplica a seleção e preserva a última escolha de cada provedor. A indicação “sugestão econômica” é uma preferência por famílias compactas, não um ranking de qualidade ou garantia de preço.
+O cartão **EM USO** confirma o provedor, o modelo e a consulta do catálogo. Trocar o modelo disponível aplica a seleção e preserva a última escolha de cada provedor. Consultar o catálogo não comprova saldo, cota ou sucesso de uma inferência. A seleção inicial privilegia algumas famílias compactas quando reconhecidas, sem ranking de qualidade ou garantia de preço.
 
 Na análise, **PRÓXIMA ANÁLISE** mostra a seleção atual e **ESTA RESPOSTA** registra o provedor, o modelo efetivamente retornado e a data. Trocar a seleção não altera a origem da resposta anterior. A resposta validada fica em ia.json junto à sessão e pode ser reaberta sem nova chamada; esse arquivo não contém chave ou endpoint.
 
-### Conectar Claude ou outra IA
+### Conectar um serviço de IA
 
-1. Escolha **Conectar minha IA** e o serviço.
-2. Use **Obter minha chave** para abrir o painel oficial. Cole sua chave; os modelos serão buscados automaticamente. Também é possível usar **Conectar e buscar modelos**.
-3. Confira o modelo sugerido ou escolha outro disponível. O cartão **EM USO** confirma a seleção.
-4. Depois da captura, abra a aba de IA, confira o resumo e solicite a explicação.
+1. Escolha **Conectar minha IA** e busque o serviço que já usa.
+2. No **OpenRouter**, use **Conectar OpenRouter pelo navegador**. Autorize a conexão local identificada como localhost e volte ao SysPulse; não precisa copiar uma chave. Na **conta Ollama**, use **Entrar na conta Ollama**.
+3. Nos conectores por API, use **Obter chave ou token**, siga o painel oficial e cole a credencial. Os modelos serão buscados automaticamente.
+4. Busque um modelo na lista e confira o cartão **EM USO**. Para informar um ID manualmente, digite e use **Usar este modelo**.
+5. Depois da captura, confira o resumo na aba de IA e solicite a explicação.
 
-Claude usa a API nativa da Anthropic. A chave vem da [Claude Console](https://platform.claude.com/settings/keys); a assinatura do aplicativo Claude não concede automaticamente crédito para API. Há cobrança e permissões próprias. Consulte a [documentação de autenticação](https://platform.claude.com/docs/en/api/overview).
+| Serviço | Como conectar |
+|---|---|
+| OpenRouter | Autorização pelo navegador ou chave; reúne modelos de vários fornecedores |
+| GPT / OpenAI, Gemini / Google, Claude / Anthropic | Chave do painel oficial, com catálogo automático |
+| DeepSeek, Groq, Mistral AI, Grok / xAI, Together AI | Chave do serviço, com endereço já configurado |
+| Hugging Face | Token com permissão para Inference Providers |
+| Conta Ollama | Login pelo próprio Ollama, sem colar chave no SysPulse |
+| LM Studio | Servidor local ativo; token opcional se o servidor exigir |
+| Outro serviço compatível | Endereço base, formato da API e autenticação do servidor |
 
-A opção gratuita sem conta continua disponível separadamente. Nenhuma credencial do autor acompanha o aplicativo.
+O acesso segue os créditos, cotas e permissões da conta escolhida. A conexão por API ou autorização externa é diferente de importar a sessão do aplicativo de conversa. Não existe credencial do autor embutida. A opção gratuita sem conta continua separada.
+
+No OpenRouter, o software usa [OAuth com PKCE](https://openrouter.ai/docs/guides/overview/auth/oauth). A senha fica no provedor; o SysPulse recebe uma credencial da conta autorizada. A espera de login tem prazo de três minutos e permite cancelamento. A consulta de modelos usa o catálogo filtrado pelas preferências da conta. O uso pode consumir créditos, inclusive ao acessar modelos de outros fornecedores.
+
+![Conexão de serviços com dados simulados](docs/images/conectar-ia.png)
+
+### Conectar outro servidor
+
+Escolha **Outro serviço compatível**. Cole o endereço base, como http://localhost:1234 ou https://servidor/v1; o caminho final é montado automaticamente. Quando necessário, escolha o formato informado pelo servidor:
+
+- **Chat Completions**, compatível com OpenAI.
+- **Responses**, compatível com OpenAI.
+- **Messages**, compatível com Anthropic.
+- **API Ollama**.
+
+A autenticação pode usar Bearer, x-api-key, api-key ou nenhuma chave. O padrão do formato seleciona o cabeçalho usual. HTTP é permitido em loopback; serviços externos exigem HTTPS. Trocar o endereço de um servidor personalizado limpa a credencial do formulário antes de uma nova consulta.
+
+Se o servidor não fornecer catálogo, informe o ID do modelo e use **Usar este modelo**. A seleção fica identificada como ainda não conferida; o acesso será confirmado ao solicitar a análise. A compatibilidade exige um dos formatos acima; um site de chat sem API compatível precisa de um conector próprio.
+
+![Servidor personalizado com dados simulados](docs/images/servidor-ia.png)
 
 ## IA sem login ou chave
 
@@ -189,13 +217,11 @@ Após cada análise nativa no Ollama, o SysPulse solicita o descarregamento com 
 
 ![Configuração e download de modelos](docs/images/configuracoes.png)
 
-## Outras opções de IA
+## Credenciais
 
-LM Studio, conta Ollama na nuvem, Gemini, OpenRouter, OpenAI e endpoint compatível continuam disponíveis para quem já utiliza esses serviços. A opção anônima descrita acima não depende deles.
+Uma chave ou token fica em memória por padrão. **Guardar no cofre do Windows** é opcional e usa o Gerenciador de Credenciais do Windows; preferências comuns não armazenam a chave em texto. No Linux/macOS, reconecte ou informe a credencial novamente ao abrir o aplicativo. O serviço, endereço, formato e modelo continuam salvos.
 
-Ollama Cloud usa login da conta no próprio Ollama, sem copiar sua chave para o SysPulse. Gemini, OpenRouter, OpenAI e APIs compatíveis podem exigir chave e cobrança. Não há chave do autor embutida nem assinatura contratada pelo aplicativo. Gratuidade, cotas e preços pertencem a cada provedor.
-
-Uma chave informada fica em memória. **Guardar no cofre do Windows** é opcional e usa o Gerenciador de Credenciais do Windows; preferências comuns não armazenam a chave em texto. HTTP só é aceito em loopback; serviços externos exigem HTTPS.
+Cada serviço define modelos, saldo, cotas e preços. A autorização OpenRouter ou o login Ollama usa a conta escolhida no provedor; os demais conectores seguem a autenticação indicada em seus painéis oficiais.
 
 ## Como a IA participa da análise
 
@@ -311,10 +337,11 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - tools/validate_graphics.py cria uma janela gráfica de teste para verificar quadros.
 - tools/capture_screenshots.py recria os prints com dados simulados.
 - modules/windows_processes.py agrupa a leitura de processos do Windows, com fallback.
-- modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
+- modules/ai_providers.py centraliza o catálogo de serviços; ai_connections.py resolve endereços, formatos e autenticação.
+- modules/ai_login.py trata a autorização pelo navegador; ai_service.py e ai_contract.py separam transporte e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A versão 3.2 passou com 188 testes no Windows e 187 nos outros três ambientes nativos, com um teste exclusivo de Windows não aplicável. Os quatro pacotes passaram nas verificações e estão publicados em Releases. O fluxo real conferiu conexão ao Ollama sem carregar pesos, cena 3D na RTX 3050, quadros Direct3D durante a captura, consulta de drivers e assinatura do instalador LatencyMon. Claude foi validado por contratos simulados, sem chamada autenticada real. Medições e limites estão em [validação 3.2](docs/validacao-3.2.md).
+A versão 3.3 passou com 238 testes no Windows, incluindo conectores, autorização em loopback, quatro formatos por HTTP, isolamento de credenciais e seleção de modelos. Os catálogos públicos OpenRouter e Hugging Face foram consultados sem gerar inferência; autorizações e inferências pagas foram simuladas nos testes. Medições e limites estão em [validação 3.3](docs/validacao-3.3.md). A [validação 3.2](docs/validacao-3.2.md) preserva os testes reais de captura, GPU, drivers e consumo.
 
 O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem. As [validações 3.1](docs/validacao-3.1.md) e [3.0](docs/validacao-3.0.md) preservam os resultados anteriores nos quatro sistemas.
 
@@ -333,3 +360,6 @@ Veja [validação 3.0](docs/validacao-3.0.md), [validação anterior de coleta](
 - [psutil](https://psutil.readthedocs.io/stable/)
 - [NVIDIA NVML](https://docs.nvidia.com/deploy/nvml-api/latest/)
 - [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
+
+
+Referências dos conectores adicionais: [DeepSeek](https://api-docs.deepseek.com/api/list-models/), [Groq](https://console.groq.com/docs/openai), [Mistral](https://docs.mistral.ai/api/endpoint/models), [xAI](https://docs.x.ai/developers/rest-api-reference/inference), [Together AI](https://docs.together.ai/docs/inference/openai-compatibility), [Hugging Face](https://huggingface.co/docs/inference-providers/hub-api), [OpenAI Responses](https://developers.openai.com/api/reference/python/resources/responses/methods/create).

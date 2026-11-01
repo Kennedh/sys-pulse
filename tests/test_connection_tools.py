@@ -86,7 +86,7 @@ def test_connecting_applies_available_model_without_inference(tmp_path):
     inference.assert_not_called()
     assert config.model == "llama3.2:3b" and config.is_verified
     assert "llama3.2:3b" in panel.active.text()
-    assert "conferida" in panel.active.text()
+    assert "catálogo conferido" in panel.active.text()
 
 
 def test_integrated_can_be_chosen_from_invalid_custom_form(tmp_path):

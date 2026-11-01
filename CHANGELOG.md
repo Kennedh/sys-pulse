@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 3.3.0 — 01/11/2026
+
+- Conexão por serviço e servidor, com busca no catálogo e entrada manual de modelo.
+- Autorização OpenRouter pelo navegador com PKCE e retorno em loopback; conta Ollama acessível na conexão principal.
+- Conectores diretos DeepSeek, Groq, Mistral AI, Grok/xAI, Together AI e Hugging Face.
+- Quatro formatos de API: Chat Completions, Responses, Messages e Ollama.
+- Endereço base convertido automaticamente para a rota do formato; autenticação Bearer, x-api-key, api-key ou sem chave.
+- Catálogo e credenciais tratados por provedor; formatos e servidor participam da identificação da conexão e do cache.
+- Credencial do formulário removida ao trocar o servidor personalizado; respostas de catálogo antigas ignoradas.
+- Respostas interrompidas por limite não são apresentadas como concluídas.
+- Preferências e exemplos anteriores preservados, com testes e guias do fluxo genérico.
+
 ## 3.2.0 — 01/11/2026
 
 - Seleção de IA por origem, catálogo automático e confirmação explícita do modelo em uso.

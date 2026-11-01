@@ -4,7 +4,7 @@ Os instaladores e pacotes portáteis ficam em [GitHub Releases → Assets](https
 
 ## Windows
 
-Baixe SysPulse-3.2.0-Windows-x64-Setup.exe e abra. Escolha a pasta, o grupo de atalhos e, se quiser, um atalho na área de trabalho. A instalação é por usuário e a pasta precisa permitir escrita. O aplicativo não exige Python instalado.
+Baixe SysPulse-3.3.0-Windows-x64-Setup.exe e abra. Escolha a pasta, o grupo de atalhos e, se quiser, um atalho na área de trabalho. A instalação é por usuário e a pasta precisa permitir escrita. O aplicativo não exige Python instalado.
 
 Na etapa Análise inicial, escolha análise integrada, preparação de IA local ou IA anônima. Ao abrir o SysPulse, a configuração inicial confirma a escolha. Downloads precisam de confirmação na interface. A tarefa opcional LatencyMon abre a tela de ferramentas após a instalação; o download, a assinatura e a licença são tratados separadamente pelo instalador original.
 
@@ -19,14 +19,14 @@ Use uma distribuição desktop compatível com a base Ubuntu 22.04/glibc 2.35, a
 Permita executar o arquivo Setup.run e abra em um terminal:
 
 ```sh
-chmod +x SysPulse-3.2.0-Linux-x64-Setup.run
-./SysPulse-3.2.0-Linux-x64-Setup.run
+chmod +x SysPulse-3.3.0-Linux-x64-Setup.run
+./SysPulse-3.3.0-Linux-x64-Setup.run
 ```
 
 Com Zenity instalado, o instalador oferece seleção gráfica de pasta e análise. Sem ele, o terminal solicita a pasta. Também é possível informar:
 
 ```sh
-./SysPulse-3.2.0-Linux-x64-Setup.run --prefix "$HOME/Aplicativos/SysPulse" --yes
+./SysPulse-3.3.0-Linux-x64-Setup.run --prefix "$HOME/Aplicativos/SysPulse" --yes
 ```
 
 A pasta deve ser exclusiva do SysPulse. O instalador verifica o payload com SHA-256 e cria uma entrada no menu de aplicativos. Para preparar IA na primeira abertura, use --local-ai ou --online-ai. Para remover, execute uninstall.sh na pasta instalada; sessões e modelos externos são preservados.
@@ -42,6 +42,14 @@ A primeira abertura oferece análise integrada, modelo local ou IA anônima. Os 
 O pacote declara macOS 13 como mínimo, mas a validação nativa de build ocorre em macOS 15. O Ollama atual requer macOS 14 ou superior. Sensores Apple e dados detalhados de drivers não são medidos pelas fontes Windows/NVML.
 
 Para remover o aplicativo, retire SysPulse.app da pasta de instalação. Preferências, capturas e modelos ficam fora do bundle e são mantidos.
+
+## Conectar um serviço que já usa
+
+Em Configurações → Conectar minha IA, escolha o serviço e siga a autenticação mostrada. OpenRouter oferece autorização pelo navegador; conta Ollama usa o login do próprio runtime. Os demais conectores por API têm link para o painel de chaves e busca automática de modelos.
+
+Uma credencial fica em memória por padrão. Guardar no cofre do Windows é opcional. Em Linux/macOS, a credencial precisa ser informada novamente ao abrir o aplicativo. Preferências de serviço, endereço, formato e modelo são preservadas; a chave não é escrita nas preferências comuns.
+
+Outro serviço compatível aceita endereço base e os formatos Chat Completions, Responses, Messages ou Ollama. Um catálogo ausente permite informar o ID manualmente. Conectar e consultar modelos não solicita inferência.
 
 ## Modelos e espaço
 

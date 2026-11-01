@@ -1,6 +1,8 @@
 import ctypes
 import os
 
+from modules.ai_providers import PROVIDERS
+
 
 class Credential(ctypes.Structure):
     _fields_ = [("flags", ctypes.c_uint32), ("kind", ctypes.c_uint32), ("target", ctypes.c_wchar_p),
@@ -22,7 +24,7 @@ class CredentialStore:
             self.api.CredFree.argtypes = [ctypes.c_void_p]
 
     def target(self, provider):
-        if provider not in ("gemini", "openai", "openrouter", "custom", "lmstudio", "ollama", "anthropic", "horde", "ollama_cloud"):
+        if provider not in PROVIDERS:
             raise ValueError("Serviço inválido.")
         return "SysPulse/AI/" + provider
 

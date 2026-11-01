@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from modules.advanced_analysis import driver_name
 from modules.ai_service import call_model, validate_endpoint, NoRedirect
 from modules.ai_settings import AIConfig
+from modules.ai_connections import connection, credential_options
 from modules.ai_contract import render_explanation
 
 
@@ -174,7 +175,7 @@ class AISummaryPanel(QWidget):
         provider = PROVIDERS[self.config.provider]["name"]
         self.choice.setText("PRÓXIMA ANÁLISE · Integrada, sem IA" if not self.config.enabled else
                             f"PRÓXIMA ANÁLISE · {provider}\nModelo: {model} · " +
-                            ("disponibilidade conferida" if self.config.is_verified else "será conferido ao conectar"))
+                            ("catálogo conferido" if self.config.is_verified else "será conferido ao conectar"))
         blocked = self.config.activity.busy
         self.send.setEnabled(self.payload is not None and self.config.enabled and not blocked and not self._busy)
         self.configure.setEnabled(not blocked)
@@ -242,7 +243,10 @@ class AISummaryPanel(QWidget):
         values["_cancelled"] = lambda: self._closed.is_set() or self._cancel.is_set()
         values["_progress"] = self.progressed.emit
         try:
-            endpoint, local = validate_endpoint(values["endpoint"])
+            endpoint, api_format, local = connection(values)
+            if api_format != "horde":
+                credential_options(values, api_format, local)
+            values.update(endpoint=endpoint, api_format=api_format)
             if not values["model"].strip():
                 raise ValueError("Escolha um modelo em Configurações.")
             if len(json.dumps(self.payload, ensure_ascii=False)) > 32000:
@@ -257,6 +261,7 @@ class AISummaryPanel(QWidget):
                                f"Enviar o resumo revisado para {destination}?\n"
                                "A resposta complementa a análise local e pode conter erros.\n"
                                + ("O uso segue a cota ou saldo da sua conta Ollama.\n" if values["provider"] == "ollama_cloud" else "")
+                               + ("O uso pode consumir créditos ou cota da sua conta.\n" if not local and values["provider"] != "horde" else "")
                                + ("AI Horde é comunitário: workers podem ver o resumo, a fila tem baixa prioridade e o resultado pode falhar.\n" if values["provider"] == "horde" else "")
                                + ("Um modelo de nuvem no servidor local pode encaminhar dados." if local else
                                   "O provedor receberá as evidências revisadas.")) != QMessageBox.Yes:
@@ -272,7 +277,7 @@ class AISummaryPanel(QWidget):
         self.update_state()
         self.status.setText("Analisando após a captura… o modelo local será liberado ao concluir.")
         cache_key = hashlib.sha256(json.dumps(
-            [values["provider"], endpoint, values["model"], values["answer_tokens"], SYSTEM_PROMPT, payload],
+            [list(self.config.identity()), values["answer_tokens"], SYSTEM_PROMPT, payload],
             sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
         def run():
