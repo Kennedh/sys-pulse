@@ -47,11 +47,11 @@ def configure_first_run(window, selected=None):
     choice = dialog.selection()
     settings.setValue("setup/completed", True)
     if choice == "integrated":
+        window.settings_panel.choose_mode("integrated")
         return
     provider = "horde" if choice == "online" else "ollama"
     panel = window.settings_panel
-    panel.provider.setCurrentIndex(panel.provider.findData(provider))
+    panel.choose_mode(provider)
     if choice == "local":
-        panel.model.setCurrentText("llama3.2:1b")
-    panel.apply()
+        panel.download_group.setChecked(True)
     window.show_page(7)

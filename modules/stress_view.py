@@ -40,11 +40,19 @@ class StressPanel(QWidget):
                        "A carga aumenta consumo e temperatura. Concluir não certifica integridade física.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        form = QFormLayout()
+        form = self.form = QFormLayout()
         self.kind = QComboBox()
         for label, value in (("CPU · cálculo com resultado conhecido", "cpu"),
                              ("GPU · renderização 3D", "gpu"), ("RAM · escrita e leitura verificadas", "memory")):
             self.kind.addItem(label, value)
+        self.resolution = QComboBox()
+        for size in ("1280x720", "1920x1080", "2560x1440"):
+            self.resolution.addItem(size, size)
+        self.gpu_profile = QComboBox()
+        for label, value in (("Geometria · shader leve", "geometry"), ("Equilibrado · cena e iluminação", "balanced"),
+                             ("Shader intenso · mais cálculo por pixel", "shader")):
+            self.gpu_profile.addItem(label, value)
+        self.gpu_profile.setCurrentIndex(1)
         self.duration = QComboBox()
         for minutes in (5, 15, 30, 60):
             self.duration.addItem(f"{minutes} minutos", minutes * 60)
@@ -65,7 +73,8 @@ class StressPanel(QWidget):
             field.setValue(value)
             field.setSuffix(" °C")
         for caption, field in (("Componente", self.kind), ("Duração da carga", self.duration),
-                               ("Intensidade solicitada", self.intensity), ("Processos CPU", self.workers),
+                               ("Intensidade solicitada", self.intensity), ("Resolução GPU", self.resolution),
+                               ("Perfil GPU", self.gpu_profile), ("Processos CPU", self.workers),
                                ("RAM a verificar (até 25% da disponível)", self.memory),
                                ("Parar na temperatura CPU", self.cpu_limit), ("Parar na temperatura GPU", self.gpu_limit)):
             form.addRow(caption, field)
@@ -125,13 +134,19 @@ class StressPanel(QWidget):
             field.setEnabled(available)
         self.workers.setEnabled(available and self.kind.currentData() == "cpu")
         self.memory.setEnabled(available and self.kind.currentData() == "memory")
+        for field in (self.resolution, self.gpu_profile, self.workers, self.memory):
+            visible = self.kind.currentData() == ("cpu" if field is self.workers else "memory" if field is self.memory else "gpu")
+            field.setVisible(visible)
+            self.form.labelForField(field).setVisible(visible)
+            field.setEnabled(available and visible)
 
     def request_start(self):
         if self.demo or self.activity.busy or self.inventory is None:
             return
         try:
             options = validate_options({"kind": self.kind.currentData(), "duration_s": self.duration.currentData(),
-                "workers": self.workers.value(), "memory_mb": self.memory.value(), "intensity": self.intensity.currentData()})
+                "workers": self.workers.value(), "memory_mb": self.memory.value(), "intensity": self.intensity.currentData(),
+                "resolution": self.resolution.currentData(), "gpu_profile": self.gpu_profile.currentData()})
         except (ValueError, OSError) as error:
             self.status.setText(str(error))
             return
@@ -242,7 +257,10 @@ class StressPanel(QWidget):
                 self.phase = "working"
             elif self.phase == "working":
                 status = self.controller.status()
-                self.status.setText(f"Carga {self.options['kind']} · {status.get('elapsed_s', 0):.0f} / {self.options['duration_s']} s · Parar teste encerra a carga.")
+                text = f"Carga {self.options['kind']} · {status.get('elapsed_s', 0):.0f} / {self.options['duration_s']} s"
+                if isinstance(status.get("fps"), (int, float)):
+                    text += f" · {status['fps']:.1f} FPS · P95 {status.get('frametime_p95_ms', 0):.1f} ms · P99 {status.get('frametime_p99_ms', 0):.1f} ms"
+                self.status.setText(text + " · Parar teste encerra a carga.")
                 if self.last_sample_at is not None and time.monotonic() - self.last_sample_at > 5:
                     self.request_stop("Monitor sem leituras atualizadas")
                 if self.controller.process.poll() is not None:

@@ -494,6 +494,19 @@ def report_text(result):
     if result.get("explanation"):
         lines += [readable_report(result, "ENTENDA A CAPTURA"), "", "DETALHAMENTO TÉCNICO"]
     lines += [insight_text(result.get("evolution", {})), ""]
+    stress = result.get("stress") or {}
+    if stress:
+        lines += ["TESTE DE ESTRESSE", f"Componente: {stress.get('kind')} | estado: {stress.get('state')}",
+                  str(stress.get("method") or ""), str(stress.get("reason") or "")]
+        if stress.get("kind") == "gpu":
+            lines += [f"Adaptador: {stress.get('renderer', 'N/D')} | resolução real: {stress.get('render_resolution', 'N/D')}",
+                      f"FPS: {fmt(stress.get('fps'))} | frametime P95 {fmt(stress.get('frametime_p95_ms'), ' ms')} | "
+                      f"P99 {fmt(stress.get('frametime_p99_ms'), ' ms')} | maior {fmt(stress.get('frametime_max_ms'), ' ms')}",
+                      f"Submissão CPU média: {fmt(stress.get('cpu_submit_mean_ms'), ' ms')} (inclui espera da API; não é tempo de GPU)",
+                      str(stress.get("frametime_method") or "")]
+        else:
+            lines += [f"Verificações: {stress.get('checks', 'N/D')} | divergências: {stress.get('errors', 'N/D')}"]
+        lines.append("")
     dominant = summary["dominant"]
     if dominant:
         lines.append(f"Maior utilização média (%): {dominant['name']} — {dominant['mean']:.1f}%")

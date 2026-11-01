@@ -98,7 +98,7 @@ def test_simple_ai_modes_save_without_loading_a_model(tmp_path):
             assert config.enabled and config.provider == "horde"
             assert panel.provider.isHidden() and panel.model.isHidden()
             panel.choose_mode("ollama")
-            assert config.provider == "ollama" and not panel.models.isHidden()
+            assert config.provider == "ollama" and not panel.download_group.isHidden()
         request.assert_not_called()
     finally:
         panel.shutdown()
@@ -128,7 +128,8 @@ def test_switching_ai_mode_remembers_installed_model(tmp_path):
     panel = AISettingsPanel(config)
     try:
         panel.choose_mode("ollama")
-        panel.model.setCurrentText("qwen3:0.6b")
+        panel.model.addItem("qwen3:0.6b", "qwen3:0.6b")
+        panel.model.setCurrentIndex(panel.model.findData("qwen3:0.6b"))
         panel.apply()
         panel.choose_mode("horde")
         panel.choose_mode("ollama")

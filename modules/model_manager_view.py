@@ -15,6 +15,7 @@ from modules.model_manager import (LOCAL_MODELS, OllamaRuntime, DownloadCancelle
 class ModelManagerPanel(QWidget):
     progressed = Signal(dict)
     finished = Signal(object, str)
+    prepared = Signal(str)
 
     def __init__(self, config):
         super().__init__()
@@ -27,7 +28,7 @@ class ModelManagerPanel(QWidget):
         self.prepare_settings = lambda: True
         self.provider = None
         layout = QVBoxLayout(self)
-        title = QLabel("Preparar IA sem aumentar o instalador")
+        title = QLabel("Instalar Ollama e adicionar modelos")
         title.setObjectName("title")
         layout.addWidget(title)
         self.info = QLabel()
@@ -43,6 +44,7 @@ class ModelManagerPanel(QWidget):
         for button in (self.install, self.detect, self.signin):
             controls.addWidget(button)
         layout.addLayout(controls)
+        layout.addWidget(QLabel("Modelo para baixar · só será selecionado após concluir"))
         self.catalog = QComboBox()
         self.catalog.setEditable(True)
         layout.addWidget(self.catalog)
@@ -188,6 +190,8 @@ class ModelManagerPanel(QWidget):
                 self.status.setText("Modelo baixado. Selecione-o em Configurações. " + str(exception))
         else:
             self.status.setText((result or {}).get("message") or "Ollama pronto. Escolha um modelo para preparar.")
+        if not error:
+            self.prepared.emit((result or {}).get("model", ""))
         self.update_state()
 
     def cancel_job(self):

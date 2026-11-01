@@ -41,6 +41,12 @@ QPushButton#primary { background: #627ee6; font-weight: bold; padding: 12px 18px
 QPushButton#primary:hover { background: #7892f5; }
 QPushButton#primary:disabled { background: #242b3a; color: #7b879b; }
 QPushButton#secondary { background: #20293b; color: #c1cce4; }
+QPushButton#aiMode { background: #20293b; border: 2px solid #34405a; color: #becbe1; }
+QPushButton#aiMode:hover { background: #2d3953; border-color: #6b83d7; }
+QPushButton#aiMode:checked { background: #344b90; border-color: #9cb0ff; color: #ffffff; font-weight: bold; }
+QPushButton#aiMode:disabled { color: #7b879b; }
+QGroupBox::indicator { width: 16px; height: 16px; border: 1px solid #63749a; border-radius: 3px; background: #1d2638; }
+QGroupBox::indicator:checked { background: #7f98fa; border-color: #b4c4ff; }
 QGroupBox { border: 1px solid #34405a; border-radius: 7px; margin-top: 14px; padding: 12px; }
 QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
 QScrollArea { border: none; }
@@ -112,6 +118,7 @@ class App(QMainWindow):
         self.setMinimumSize(980, 680)
         self.activity = ActivityState()
         self.ai_config = AIConfig(self.activity)
+        self.ai_config.demo = demo
         self._capture_mode = "light"
         self.setStyleSheet(STYLE)
         self.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "syspulse.svg")))
@@ -158,7 +165,10 @@ class App(QMainWindow):
         self.pages.addWidget(diagnostic_scroll)
         self.analysis = AnalysisPanel(self.ai_config)
         self.pages.addWidget(self.analysis)
+        from modules.diagnostic_tools_view import DiagnosticToolsPanel
         self.inspection = InspectionPanel()
+        self.driver_tools = DiagnosticToolsPanel(self.activity, demo=demo)
+        self.inspection.tabs.addTab(self.driver_tools, "Atualizações e LatencyMon")
         self.pages.addWidget(self.inspection)
         self.inspection_service = InspectionService(self.inventory_ready.emit)
         self.inventory_ready.connect(self.on_inventory)
@@ -181,6 +191,7 @@ class App(QMainWindow):
         self.diagnostic.configure_ai.connect(lambda: self.show_page(7))
         self.diagnostic.advanced_requested.connect(lambda: self.show_page(6))
         self.advanced.capture_state.connect(self.on_advanced_state)
+        self.advanced.recorder_status.connect(self.diagnostic.update_frame_stats)
         self.advanced.ready.connect(lambda generation, result, destination: self.show_page(6)
                                     if generation == self.advanced._generation else None)
         self.activity.changed.connect(self.on_activity)
@@ -465,4 +476,5 @@ class App(QMainWindow):
         self.analysis.shutdown()
         self.advanced.shutdown()
         self.inspection_service.stop()
+        self.driver_tools.shutdown()
         self.tray.hide()

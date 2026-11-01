@@ -221,7 +221,8 @@ class SessionRecorder:
             raw_path = self.path / ("amostras.jsonl.gz" if self.options.get("compressed") else "amostras.jsonl")
             size_mib = raw_path.stat().st_size / 1024 ** 2
             self._notify(f"Gravando · {elapsed // 60:02d}:{elapsed % 60:02d} / {self.duration_s // 60} min · "
-                         f"{size_mib:.2f} MiB · {self.count} amostras · {self.event_count} marcações", count=self.count)
+                         f"{size_mib:.2f} MiB · {self.count} amostras · {self.event_count} marcações", count=self.count,
+                         frame_stats=self.frames.live_snapshot() if self.frames else {"state": "off"})
         if now - self.space_checked >= 10:
             self.space_checked = now
             if self.frames and self.frames.path and self.frames.path.is_file() and self.frames.path.stat().st_size > 256 * 1024 ** 2:

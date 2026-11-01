@@ -160,7 +160,7 @@ def test_frame_capture_requires_target_and_uses_own_session(tmp_path):
     capture = FrameCapture()
     with pytest.raises(ValueError, match="Selecione"):
         capture.start(tmp_path, None)
-    process = SimpleNamespace(poll=lambda: 0, returncode=0)
+    process = SimpleNamespace(poll=lambda: 0, returncode=0, stdout=io.BytesIO())
     with patch("modules.frametimes.find_presentmon", return_value="PresentMon.exe"), patch("modules.frametimes.subprocess.Popen", return_value=process) as launch:
         capture.start(tmp_path, 10)
         arguments = launch.call_args.args[0]

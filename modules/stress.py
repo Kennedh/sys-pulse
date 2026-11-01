@@ -32,7 +32,12 @@ def validate_options(options):
         raise ValueError("Carga ou quantidade de RAM fora do limite.")
     if kind == "memory" and memory * 1024 ** 2 > psutil.virtual_memory().available * .25:
         raise ValueError("A RAM escolhida excede 25% da memória disponível. Reduza a quantidade.")
-    return {"kind": kind, "duration_s": duration, "workers": workers, "intensity": intensity, "memory_mb": memory}
+    resolution = options.get("resolution", "1280x720")
+    profile = options.get("gpu_profile", "balanced")
+    if resolution not in ("1280x720", "1920x1080", "2560x1440") or profile not in ("geometry", "balanced", "shader"):
+        raise ValueError("Resolução ou perfil gráfico inválido.")
+    return {"kind": kind, "duration_s": duration, "workers": workers, "intensity": intensity,
+            "memory_mb": memory, "resolution": resolution, "gpu_profile": profile}
 
 
 def cpu_lane(stop, deadline, intensity, result):
@@ -67,8 +72,14 @@ def run_worker(folder):
     config = json.loads((folder / "request.json").read_text(encoding="utf-8"))
     options = validate_options(config)
     if options["kind"] == "gpu":
-        from modules.stress_gpu import run_gpu
-        return run_gpu(folder, config)
+        try:
+            from modules.stress_gpu import run_gpu
+            return run_gpu(folder, config)
+        except Exception as error:
+            write_json(folder / "result.json", {"kind": "gpu", "state": "failed", "checks": None, "errors": None,
+                       "elapsed_s": 0, "reason": f"Não foi possível iniciar a cena 3D: {type(error).__name__}: {error}",
+                       "options": options})
+            return 1
     try:
         psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 5)
     except psutil.Error:

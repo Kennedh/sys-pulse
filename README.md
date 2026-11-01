@@ -1,4 +1,4 @@
-# SysPulse 3.1
+# SysPulse 3.2
 
 **Grave o desempenho, marque o sintoma e investigue as evidências.**
 
@@ -14,12 +14,12 @@ Os prints e a sessão de demonstração usam **dados simulados**, identificados 
 
 Os arquivos ficam em **Releases → Assets** no GitHub. Modelos de IA não acompanham o instalador.
 
-| Sistema | Arquivo da versão 3.1 | Instalação |
+| Sistema | Arquivo da versão 3.2 | Instalação |
 |---|---|---|
-| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
-| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
-| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
-| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
+| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
+| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
+| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
+| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.2.0/SysPulse-3.2.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
 
 A seção Assets também oferece ZIP portátil no Windows, TAR.GZ no Linux, DMG no macOS e SHA256SUMS.txt para conferir a integridade. No DMG, arraste o aplicativo para a pasta desejada. A disponibilidade de cada arquivo depende de seu build nativo concluir com sucesso.
 
@@ -75,7 +75,7 @@ Abra **TESTES DE ESTRESSE**, escolha componente, duração e intensidade solicit
 | Teste | O que executa | Limite |
 |---|---|---|
 | CPU | Processos separados com PBKDF2-SHA256 e verificação de um resultado conhecido | Não cobre todas as instruções, caches ou modos de falha do processador. |
-| GPU 3D | Shader OpenGL 3.2 em uma janela de 960×540 | Sem detector de artefatos ou teste integral de VRAM. O driver escolhe o adaptador. |
+| GPU 3D | 84 cubos em movimento, perspectiva, profundidade e iluminação. Perfis de shader e resolução 720p/1080p/1440p; FPS e frametime P95/P99. | Sem detector de artefatos ou teste integral de VRAM. O driver escolhe o adaptador. |
 | RAM | Escrita/leitura dos padrões 0xAA/0x55 em blocos de 1 MiB | Verifica somente a alocação virtual escolhida, até 25% da RAM disponível; não substitui MemTest. |
 
 A duração da carga pode ser 5, 15, 30 ou 60 minutos. A intensidade é um orçamento de trabalho, não uma promessa de utilização exata. O padrão CPU usa até 64 processos lógicos disponíveis e 50% do orçamento por processo; é possível ajustar.
@@ -94,7 +94,7 @@ Concluir sem divergências não certifica estabilidade física. Teste interrompi
 
 Ao investigar imagem engasgando, habilite a captura de quadros e selecione o aplicativo. O pacote gerado com a ferramenta local inclui o [PresentMon](https://github.com/GameTechDev/PresentMon); no código-fonte, informe o executável em Mais opções ou disponibilize-o no PATH.
 
-O modo de coleta mínimo registra os intervalos produzidos pelo aplicativo, separados por PID e swapchain. A análise mostra mediana, P95, P99, máximo, intervalos longos e recursos observados perto dos maiores eventos. São usados QPC e relógio monotônico para essa associação.
+O modo de coleta mínimo registra os intervalos produzidos pelo aplicativo, separados por PID e swapchain. Durante a captura, o cartão mostra FPS produzidos e frametime P95/P99 da cadeia com mais quadros na janela recente, atualizado a cada dois segundos. A análise final mostra FPS, mediana, P95, P99, máximo, intervalos longos e recursos observados perto dos maiores eventos. São usados QPC e relógio monotônico para essa associação.
 
 Esse modo não registra latência de entrada, tempo efetivamente exibido ou ocupação da GPU por quadro. Inicialização, minimização e limitadores também podem produzir intervalos longos. Os dados mostram o evento; isoladamente, não confirmam sua causa.
 
@@ -105,7 +105,7 @@ Os frametimes são comprimidos ao encerrar. Um limite aproximado de 256 MiB no C
 - **Visão geral:** cartões de CPU, RAM, GPU, disco, temperaturas e custo da coleta; histórico e detalhes.
 - **Hardware:** processador, placa-mãe, BIOS, módulos de RAM, discos, GPU, driver gráfico, frequência de atualização informada e plano de energia.
 - **Rede:** interfaces, endereços, máscara, MTU, tráfego, destino de ping configurável, respostas, timeouts e variação entre respostas.
-- **Drivers e saúde:** consulta pontual de dispositivos PnP, armazenamento e eventos selecionados do Windows.
+- **Drivers e saúde:** inventário PnP, armazenamento e eventos do Windows, consulta de ofertas de drivers pelo Windows Update e integração opcional com LatencyMon.
 
 ![Hardware com dados simulados](docs/images/hardware.png)
 
@@ -115,22 +115,47 @@ Temperatura, clock efetivo, configuração de canais de memória, saúde SMART/N
 
 Sensores extras podem ser lidos do [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) em http://127.0.0.1:8085/data.json. Ative seu servidor local e a opção correspondente em Mais opções. NVIDIA também usa NVML quando disponível.
 
+## Drivers, atualizações e LatencyMon
+
+Em **DRIVERS E SAÚDE → Atualizações e LatencyMon**, use **Consultar atualizações de drivers**. A consulta informa ofertas aplicáveis do Windows Update; não instala nada e bloqueia novas capturas enquanto consulta. Sem ofertas não prova que a versão mais recente do fabricante está instalada. Use **Instalar pelo Windows Update** ou o link oficial do fabricante para revisar e instalar.
+
+O instalador Windows oferece uma opção para preparar o LatencyMon após instalar o SysPulse. Também é possível instalar depois, pela mesma tela:
+
+1. **Baixar e abrir instalador oficial** baixa do site Resplendence, exige assinatura Authenticode válida do fabricante e abre o assistente original.
+2. Conclua a instalação e confira a licença/edição original. O binário não é redistribuído dentro do SysPulse.
+3. Use **Detectar / abrir LatencyMon**, inicie a medição na ferramenta e reproduza o sintoma.
+4. Pare, exporte o relatório de texto pelo LatencyMon e use **Importar relatório de texto**.
+
+O LatencyMon abre em sua própria janela. Não há controle automático da medição nem coleta embutida de seu driver. O relatório importado permanece local, não entra no resumo enviado à IA e não é correlacionado automaticamente com outra captura. Instalação personalizada é detectada pelo registro do Windows quando o instalador informa a pasta.
+
+DPC/ISR expressa duração de execução de drivers, em microssegundos; não é “frametime do driver”. O ETL detalhado continua oferecendo essa análise por módulo via ferramentas Microsoft. Para investigar um engasgo, compare horário, repetição e demais evidências. [LatencyMon oficial](https://www.resplendence.com/latencymon), [orientação Microsoft para atualizar drivers](https://support.microsoft.com/en-us/windows/hardware/drivers/automatically-get-recommended-and-updated-hardware-drivers).
+
 ## Escolher a análise
 
-Em Configurações, escolha um dos modos:
+Em **Configurações**, os quatro botões indicam a origem: **Integrada**, **Online gratuita**, **Local neste PC** ou **Conectar minha IA**.
 
-- **Análise integrada:** sem IA, internet ou configuração.
-- **Online:** acesso anônimo, sem conta, chave ou download de modelo.
-- **Local:** use um modelo instalado ou prepare um download.
-- **Já uso outro serviço:** mostra provedor, chave e opções avançadas.
+Ao conectar, o catálogo é buscado automaticamente. No modo local, o Ollama instalado é detectado ou iniciado sem carregar pesos. A lista mostra modelos instalados; os downloads ficam recolhidos em **Adicionar um modelo local**. O modelo do catálogo de download só passa a ser usado depois de baixar.
 
-A tela identifica a configuração ativa. Trocar entre online e local preserva o último modelo salvo de cada provedor. Os modos simples são aplicados ao selecionar; para alterar modelo ou opções avançadas, use **Usar esta configuração**. Nenhum modo inicia inferência ao ser escolhido.
+O cartão **EM USO** confirma provedor, modelo e se a disponibilidade foi conferida. Trocar o modelo disponível aplica a seleção e preserva a última escolha de cada provedor. A indicação “sugestão econômica” é uma preferência por famílias compactas, não um ranking de qualidade ou garantia de preço.
+
+Na análise, **PRÓXIMA ANÁLISE** mostra a seleção atual e **ESTA RESPOSTA** registra o provedor, o modelo efetivamente retornado e a data. Trocar a seleção não altera a origem da resposta anterior. A resposta validada fica em ia.json junto à sessão e pode ser reaberta sem nova chamada; esse arquivo não contém chave ou endpoint.
+
+### Conectar Claude ou outra IA
+
+1. Escolha **Conectar minha IA** e o serviço.
+2. Use **Obter minha chave** para abrir o painel oficial. Cole sua chave; os modelos serão buscados automaticamente. Também é possível usar **Conectar e buscar modelos**.
+3. Confira o modelo sugerido ou escolha outro disponível. O cartão **EM USO** confirma a seleção.
+4. Depois da captura, abra a aba de IA, confira o resumo e solicite a explicação.
+
+Claude usa a API nativa da Anthropic. A chave vem da [Claude Console](https://platform.claude.com/settings/keys); a assinatura do aplicativo Claude não concede automaticamente crédito para API. Há cobrança e permissões próprias. Consulte a [documentação de autenticação](https://platform.claude.com/docs/en/api/overview).
+
+A opção gratuita sem conta continua disponível separadamente. Nenhuma credencial do autor acompanha o aplicativo.
 
 ## IA sem login ou chave
 
 A explicação integrada funciona imediatamente, sem internet, conta ou modelo.
 
-Para complementar pela internet, escolha **Nuvem · anônima, sem login ou chave** em Configurações. O SysPulse consulta o catálogo do **AI Horde**, um serviço comunitário com workers voluntários. O modo auto escolhe um modelo disponível considerando compatibilidade geral e fila; também é possível escolher um modelo da lista.
+Para complementar pela internet, escolha **Nuvem · anônima, sem login ou chave** em Configurações. O SysPulse consulta o catálogo do **AI Horde**, um serviço comunitário com workers voluntários. O modo automático escolhe um modelo disponível considerando compatibilidade geral e fila.
 
 Não é necessário criar conta, colar chave, instalar Ollama ou baixar pesos para essa opção. O software usa o identificador público de acesso anônimo previsto pelo serviço.
 
@@ -140,7 +165,7 @@ Acesso anônimo tem prioridade baixa e pode ser restringido em períodos de carg
 
 ## Baixar e usar um modelo local
 
-Em **CONFIGURAÇÕES → Local · Ollama**:
+Em **CONFIGURAÇÕES → Local neste PC → Adicionar um modelo local**:
 
 1. Clique em **Baixar Ollama**, instale o programa oficial e volte ao SysPulse.
 2. Clique em **Detectar / iniciar Ollama**. Um servidor já aberto é reutilizado; o SysPulse não encerra servidores de outros programas.
@@ -170,7 +195,7 @@ LM Studio, conta Ollama na nuvem, Gemini, OpenRouter, OpenAI e endpoint compatí
 
 Ollama Cloud usa login da conta no próprio Ollama, sem copiar sua chave para o SysPulse. Gemini, OpenRouter, OpenAI e APIs compatíveis podem exigir chave e cobrança. Não há chave do autor embutida nem assinatura contratada pelo aplicativo. Gratuidade, cotas e preços pertencem a cada provedor.
 
-Uma chave informada fica em memória. **Lembrar chave** é opcional e usa o Gerenciador de Credenciais do Windows; preferências comuns não armazenam a chave em texto. HTTP só é aceito em loopback; serviços externos exigem HTTPS.
+Uma chave informada fica em memória. **Guardar no cofre do Windows** é opcional e usa o Gerenciador de Credenciais do Windows; preferências comuns não armazenam a chave em texto. HTTP só é aceito em loopback; serviços externos exigem HTTPS.
 
 ## Como a IA participa da análise
 
@@ -212,6 +237,7 @@ A sessão usa compressão gzip rápida por padrão. O CSV de métricas é export
 | amostras.jsonl.gz | Recursos, dispositivos e processos selecionados. |
 | frametimes.csv.gz | Quadros do processo escolhido, quando habilitados e disponíveis. |
 | marcacoes.csv e eventos.jsonl | Marcações e janelas de recursos. |
+| ia.json | Resposta validada, origem, modelo efetivo, tokens quando disponíveis e vínculo com o resumo. |
 | sessao.json | Versão, duração, limites, encerramento, perdas e avisos. |
 | inventario.json | Consulta pontual do Windows, quando disponível. |
 | relatorio.txt, analise.txt e analise.json | Relatórios e resultado estruturado. |
@@ -288,7 +314,9 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A versão 3.1 passou com 162 testes no Windows e 161 nos outros três ambientes nativos, com um teste exclusivo de Windows não aplicável. Os quatro pacotes passaram nas verificações. A validação local executou cargas curtas de CPU, RAM e GPU, além do fluxo completo de gravação → carga → recuperação → análise. Os detalhes e limites estão em [validação 3.1](docs/validacao-3.1.md). A [validação 3.0](docs/validacao-3.0.md) preserva os testes anteriores nos quatro sistemas. O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
+A versão 3.2 passou com 188 testes no Windows. O fluxo real conferiu conexão ao Ollama sem carregar pesos, cena 3D na RTX 3050, quadros Direct3D durante a captura, consulta de drivers e assinatura do instalador LatencyMon. Claude foi validado por contratos simulados, sem chamada autenticada real. Medições e limites estão em [validação 3.2](docs/validacao-3.2.md).
+
+O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem. As [validações 3.1](docs/validacao-3.1.md) e [3.0](docs/validacao-3.0.md) preservam os resultados anteriores nos quatro sistemas.
 
 Veja [validação 3.0](docs/validacao-3.0.md), [validação anterior de coleta](docs/validacao-2.3.md), [histórico](CHANGELOG.md) e [revisão que orientou as melhorias](docs/revisao-produto-desempenho.md). As análises técnicas anteriores estão preservadas como histórico.
 

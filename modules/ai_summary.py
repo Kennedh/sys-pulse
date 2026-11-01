@@ -4,6 +4,8 @@ import math
 import re
 import threading
 import urllib.request
+from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QMessageBox
@@ -23,7 +25,8 @@ Até 3 achados, sem repetir categoria. Se nenhuma evidência candidata existir, 
 {"findings":[],"conclusion":"insufficient_data"}.
 Não acrescente números, unidades, texto livre ou comandos: o software apresenta os valores originais.
 Candidatas são critérios de triagem, não causa comprovada ou defeito físico.
-Respeite perdas, lacunas e a falta de alinhamento temporal."""
+Respeite perdas, lacunas e a falta de alinhamento temporal.
+Quando stress estiver presente, a carga foi induzida; utilização alta pode ser esperada."""
 
 
 def finite(value):
@@ -98,6 +101,8 @@ def ai_payload(result):
             "etl_duration_s": finite(result.get("duration_s")),
             "resource_duration_s": finite(summary.get("duration_s")),
             "causality_confirmed": False, "timelines_aligned": False,
+            "stress": {"kind": result["stress"].get("kind"), "state": result["stress"].get("state"),
+                       "elapsed_s": finite(result["stress"].get("elapsed_s"))} if isinstance(result.get("stress"), dict) else None,
             "note": "Sem conteúdo do ETL, nomes de processos, caminhos, IPs, notas do usuário ou inventário de dispositivos."}
 
 
@@ -115,6 +120,8 @@ class AISummaryPanel(QWidget):
         super().__init__()
         self.config = config or AIConfig()
         self.payload = None
+        self.result_source = None
+        self.last_response = None
         self._closed = threading.Event()
         self._cancel = threading.Event()
         self._generation = 0
@@ -124,6 +131,10 @@ class AISummaryPanel(QWidget):
         self.choice.setObjectName("card")
         self.choice.setWordWrap(True)
         layout.addWidget(self.choice)
+        self.used = QLabel("Esta sessão ainda não tem resposta de IA.")
+        self.used.setWordWrap(True)
+        self.used.setObjectName("card")
+        layout.addWidget(self.used)
         buttons = QHBoxLayout()
         self.configure = QPushButton("Escolher minha IA")
         self.configure.clicked.connect(self.configure_requested.emit)
@@ -135,7 +146,7 @@ class AISummaryPanel(QWidget):
         buttons.addWidget(self.send)
         buttons.addWidget(self.details)
         self.cancel_button = QPushButton("Cancelar espera")
-        self.cancel_button.clicked.connect(self._cancel.set)
+        self.cancel_button.clicked.connect(lambda: self._cancel.set())
         buttons.addWidget(self.cancel_button)
         layout.addLayout(buttons)
         self.preview = QPlainTextEdit()
@@ -159,8 +170,11 @@ class AISummaryPanel(QWidget):
 
     def update_state(self):
         model = self.config.model or "escolha um modelo"
-        self.choice.setText("Análise integrada selecionada. A explicação local está disponível." if not self.config.enabled else
-                            f"Modelo: {model}\\nDisponível após a captura. A seleção não carrega o modelo.")
+        from modules.ai_service import PROVIDERS
+        provider = PROVIDERS[self.config.provider]["name"]
+        self.choice.setText("PRÓXIMA ANÁLISE · Integrada, sem IA" if not self.config.enabled else
+                            f"PRÓXIMA ANÁLISE · {provider}\nModelo: {model} · " +
+                            ("disponibilidade conferida" if self.config.is_verified else "será conferido ao conectar"))
         blocked = self.config.activity.busy
         self.send.setEnabled(self.payload is not None and self.config.enabled and not blocked and not self._busy)
         self.configure.setEnabled(not blocked)
@@ -168,17 +182,58 @@ class AISummaryPanel(QWidget):
 
     def set_result(self, result):
         self._generation += 1
+        self.result_source = result.get("ai_output") or result.get("source")
+        self.last_response = None
+        self.used.setText("Esta sessão ainda não tem resposta de IA.")
         self.payload = ai_payload(result)
         self.preview.setPlainText(json.dumps(self.payload, ensure_ascii=False, indent=2))
         self.answer.clear()
         size = len(json.dumps(self.payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         self.status.setText(f"Resumo de {size / 1024:.1f} KiB preparado. Nenhum dado enviado.")
+        self.load_saved_response()
         self.update_state()
+
+    def response_folder(self):
+        if not self.result_source:
+            return None
+        path = Path(self.result_source)
+        if path.is_dir():
+            return path
+        if path.name in ("amostras.jsonl", "amostras.jsonl.gz", "sessao.json"):
+            return path.parent
+        return None
+
+    def payload_hash(self):
+        return hashlib.sha256(json.dumps(self.payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def load_saved_response(self):
+        folder = self.response_folder()
+        if not folder:
+            return
+        try:
+            path = folder / "ia.json"
+            if path.stat().st_size > 256 * 1024:
+                return
+            result = json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(result, dict) or result.get("payload_hash") != self.payload_hash() or not isinstance(result.get("text"), str)
+                    or not isinstance(result.get("model"), str) or len(result["text"]) > 40000):
+                return
+            self.show_response(result, saved=True)
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def show_response(self, result, saved=False):
+        self.last_response = result
+        self.answer.setPlainText(result["text"])
+        self.used.setText(f"ESTA RESPOSTA · {result.get('provider_name', 'Provedor registrado')}\n"
+                          f"Modelo efetivo: {result.get('model', 'N/D')} · {result.get('analyzed_at', '')}"
+                          + (" · resposta salva" if saved else " · cache" if result.get("cached") else ""))
 
     def request(self):
         if self.payload is None or self._busy or not self.config.enabled:
             return
         if not any(row.get("candidate") for row in self.payload.get("evidence", [])):
+            self.used.setText("ESTA RESPOSTA · Análise integrada. Nenhum modelo foi chamado.")
             self.answer.setPlainText(render_explanation('{"findings":[]}', self.payload))
             self.status.setText("Sem evidências prioritárias adicionais. Nenhum modelo foi carregado ou consultado.")
             return
@@ -222,14 +277,19 @@ class AISummaryPanel(QWidget):
 
         def run():
             try:
-                result = self.config.cache.get(cache_key)
+                cached = self.config.cache.get(cache_key)
+                result = dict(cached) if cached is not None else None
                 if result is None:
                     result = call_model(values, SYSTEM_PROMPT, payload)
                     result["text"] = render_explanation(result["text"], payload)
                     result["references_checked"] = True
                     if len(self.config.cache) >= 10:
                         self.config.cache.pop(next(iter(self.config.cache)))
-                    self.config.cache[cache_key] = result
+                    result["analyzed_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                    self.config.cache[cache_key] = dict(result)
+                from modules.ai_service import PROVIDERS
+                result.update(provider=values["provider"], provider_name=PROVIDERS[values["provider"]]["name"],
+                              requested_model=values["model"], cached=cached is not None)
                 if not self._closed.is_set():
                     self.ready.emit(generation, result)
             except Exception as error:
@@ -244,11 +304,22 @@ class AISummaryPanel(QWidget):
         self._busy = False
         if generation == self._generation:
             usage = result.get("usage", {})
-            self.status.setText(f"Resposta complementar · entrada {usage.get('input_tokens') or 'N/D'} tokens · "
-                                f"saída {usage.get('output_tokens') or 'N/D'} tokens. "
-                                + ("Confira as evidências citadas." if result.get("references_checked") else
-                                   "Sem referências verificáveis no texto; confira a análise local."))
-            self.answer.setPlainText(result["text"])
+            self.status.setText(f"Entrada: {usage.get('input_tokens') if usage.get('input_tokens') is not None else 'N/D'} tokens · "
+                                f"saída: {usage.get('output_tokens') if usage.get('output_tokens') is not None else 'N/D'} tokens. "
+                                + ("Resposta reutilizada, sem nova chamada." if result.get("cached") else "Confira as evidências citadas."))
+            self.show_response(result)
+            folder = self.response_folder()
+            if folder:
+                try:
+                    data = {key: result.get(key) for key in ("provider", "provider_name", "requested_model", "model",
+                            "analyzed_at", "usage", "text", "references_checked", "cached")}
+                    data["payload_hash"] = self.payload_hash()
+                    temporary = folder / "ia.json.tmp"
+                    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                    temporary.replace(folder / "ia.json")
+                except OSError:
+                    self.status.setText(self.status.text() + " Não foi possível salvar a resposta nesta pasta.")
+
         self.update_state()
 
     def error(self, generation, message):

@@ -128,6 +128,10 @@ class DiagnosticPanel(QWidget):
         self.budget.setWordWrap(True)
         self.budget.setObjectName("muted")
         layout.addWidget(self.budget)
+        self.frame_status = QLabel("FPS e frametime · selecione um aplicativo e habilite quadros nas opções.")
+        self.frame_status.setWordWrap(True)
+        self.frame_status.setObjectName("card")
+        layout.addWidget(self.frame_status)
         self.mode.currentIndexChanged.connect(self.update_budget)
         self.duration.currentIndexChanged.connect(self.update_budget)
         self.ai_button = QPushButton("IA opcional · escolher antes, analisar depois")
@@ -283,6 +287,9 @@ class DiagnosticPanel(QWidget):
 
     def set_status(self, status):
         active = status["active"]
+        self.update_frame_stats(status)
+        if status.get("completed"):
+            self.frame_status.setText("Captura encerrada · consulte os quadros e percentis na análise.")
         self.start.setEnabled(not active)
         self.start.setVisible(not active)
         self.mark.setVisible(active)
@@ -297,6 +304,7 @@ class DiagnosticPanel(QWidget):
         self.open.setEnabled(bool(self.session_path))
         self.analyze.setEnabled(bool(self.session_path) and not active)
         if active and status.get("count") == 0 and "marker" not in status:
+            self.frame_status.setText("Quadros · aguardando dados desta captura.")
             self.events.clear()
             self.chart.markers.clear()
         self.status.setText(status["message"] + (f" • perdidas: {status['dropped']}" if status.get("dropped") else ""))
@@ -306,6 +314,23 @@ class DiagnosticPanel(QWidget):
             self.events.appendPlainText(f"#{event['id']} · {event['timestamp']}\n{event['note']}")
         if status.get("error"):
             self.events.appendPlainText(status["message"])
+
+    def update_frame_stats(self, status):
+        stats = status.get("frame_stats")
+        if not stats:
+            return
+        state = stats.get("state")
+        if state == "ok":
+            self.frame_status.setText(
+                f"{stats['fps']:.1f} FPS produzidos · frametime P95 {stats['p95_ms']:.2f} ms · "
+                f"P99 {stats['p99_ms']:.2f} ms\n"
+                f"PID {stats.get('pid')} · cadeia com mais quadros · janela recente, atualização a cada 2 s"
+                + (" · leitura em atraso" if stats.get("backlog") else ""))
+        else:
+            self.frame_status.setText({"waiting": "Quadros · aguardando o aplicativo produzir dados.",
+                "stale": "Quadros · sem dados novos; aplicativo parado, minimizado ou captura encerrada.",
+                "off": "Quadros · captura desativada ou indisponível. Os recursos continuam sendo medidos.",
+                "invalid": "Quadros · dados inválidos; confira presentmon.log."}.get(state, "Quadros · indisponíveis."))
 
     def update_sample(self, sample):
         row = metrics(sample)

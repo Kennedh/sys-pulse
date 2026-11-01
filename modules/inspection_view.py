@@ -31,7 +31,7 @@ class InspectionPanel(QWidget):
         self.status = QLabel("Consultando dispositivos, drivers, discos e eventos…")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        tabs = QTabWidget()
+        tabs = self.tabs = QTabWidget()
         layout.addWidget(tabs, 1)
         drivers = QWidget()
         driver_layout = QVBoxLayout(drivers)

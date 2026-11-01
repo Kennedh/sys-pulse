@@ -21,6 +21,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SysPulse — monitoramento e análise de performance")
     parser.add_argument("--demo", action="store_true", help="Abre dados simulados, sem coletar informações do computador")
     parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--setup-tools", action="store_true", help="Abre a preparação opcional do LatencyMon")
     setup = parser.add_mutually_exclusive_group()
     setup.add_argument("--setup-local", action="store_true", help="Abre a preparação de um modelo local")
     setup.add_argument("--setup-online", action="store_true", help="Abre a configuração online anônima")
@@ -35,5 +36,10 @@ if __name__ == "__main__":
     elif not options.demo:
         from modules.setup_wizard import configure_first_run
         selection = "local" if options.setup_local else "online" if options.setup_online else None
-        QTimer.singleShot(0, lambda: configure_first_run(window, selection))
+        def configure():
+            configure_first_run(window, selection)
+            if options.setup_tools:
+                window.show_page(5)
+                window.inspection.tabs.setCurrentWidget(window.driver_tools)
+        QTimer.singleShot(0, configure)
     sys.exit(application.exec())

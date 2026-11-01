@@ -22,7 +22,7 @@ class CredentialStore:
             self.api.CredFree.argtypes = [ctypes.c_void_p]
 
     def target(self, provider):
-        if provider not in ("gemini", "openai", "openrouter", "custom", "lmstudio", "ollama"):
+        if provider not in ("gemini", "openai", "openrouter", "custom", "lmstudio", "ollama", "anthropic", "horde", "ollama_cloud"):
             raise ValueError("Serviço inválido.")
         return "SysPulse/AI/" + provider
 

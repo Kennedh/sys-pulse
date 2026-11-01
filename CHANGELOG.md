@@ -1,5 +1,18 @@
 # Histórico de versões
 
+## 3.2.0 — 01/11/2026
+
+- Seleção de IA por origem, catálogo automático e confirmação explícita do modelo em uso.
+- Claude pela API nativa Anthropic, credenciais por provedor e modelos locais separados dos modelos de nuvem.
+- Respostas com provedor/modelo efetivo, data, cache e persistência junto à sessão.
+- Downloads locais recolhidos e conexão ao Ollama sem carregar pesos.
+- FPS produzidos e frametime P95/P99 recentes durante capturas compatíveis.
+- GPU com geometria 3D instanciada, profundidade, movimento e iluminação; perfis e resoluções configuráveis.
+- FPS e percentis da cena GPU nos resultados, separados do tempo de submissão CPU.
+- Consulta de drivers pelo Windows Update e acesso aos instaladores oficiais dos fabricantes.
+- Instalação opcional, detecção, abertura e importação de texto do LatencyMon; assinatura do fabricante verificada.
+- Testes de regressão, documentação e prévias atualizados.
+
 ## 3.1.0 — 01/11/2026
 
 - Seleção de análise por modos claros: integrada, online anônima, local e serviço avançado.

@@ -241,7 +241,7 @@ class AnalysisPanel(QWidget):
         self.frame_note = QLabel("Ative PresentMon em Mais opções da investigação e selecione um aplicativo.")
         self.frame_note.setWordWrap(True)
         frame_layout.addWidget(self.frame_note)
-        self.frame_table = table(["PID", "Quadros", "Mediana (ms)", "P95 (ms)", "P99 (ms)", "Maior (ms)", "Intervalos longos"])
+        self.frame_table = table(["PID", "Quadros", "FPS produzidos", "Mediana (ms)", "P95 (ms)", "P99 (ms)", "Maior (ms)", "Intervalos longos"])
         frame_layout.addWidget(self.frame_table)
         self.frame_events = table(["Tempo na sessão", "Intervalo (ms)", "GPU ocupada (ms)", "CPU ocupada (ms)", "Contexto de recursos (±1 s)"])
         frame_layout.addWidget(self.frame_events)
@@ -392,6 +392,14 @@ class AnalysisPanel(QWidget):
         if not findings:
             lines.append("Sem alerta nos critérios disponíveis. Isso não descarta problemas não capturados.")
         lines += [assessment.get("method", "")]
+        stress = result.get("stress") or {}
+        if stress:
+            lines += ["", f"Teste {stress.get('kind')} · {stress.get('state')}", str(stress.get("method") or "")]
+            if stress.get("kind") == "gpu":
+                lines += [f"Adaptador: {stress.get('renderer', 'N/D')}",
+                          f"{fmt(stress.get('fps'))} FPS · P95 {fmt(stress.get('frametime_p95_ms'), ' ms')} · "
+                          f"P99 {fmt(stress.get('frametime_p99_ms'), ' ms')}",
+                          str(stress.get("frametime_method") or "")]
         self.triage_text.setPlainText("\n".join(lines))
         fill(self.pressure_table, [[r["name"], fmt(r["p95"], "%"),
                                    fmt(r["high_seconds"], " s") if r["count"] else "N/D",
@@ -403,7 +411,7 @@ class AnalysisPanel(QWidget):
         frames = result.get("frametimes") or {}
         series = frames.get("series", [])
         self.frame_note.setText(frames.get("method", "Sem frametimes nesta sessão. Ative PresentMon e selecione um aplicativo na próxima captura."))
-        fill(self.frame_table, [[s["pid"], s["count"], fmt(s["median_ms"]), fmt(s["p95_ms"]), fmt(s["p99_ms"]),
+        fill(self.frame_table, [[s["pid"], s["count"], fmt(1000 / s["mean_ms"]), fmt(s["median_ms"]), fmt(s["p95_ms"]), fmt(s["p99_ms"]),
                                 fmt(s["max_ms"]), s["long_intervals"]] for s in series])
         events = []
         if series:

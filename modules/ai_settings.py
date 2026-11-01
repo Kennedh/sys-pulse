@@ -1,9 +1,10 @@
 import threading
+import hashlib
 
-from PySide6.QtCore import QObject, QSettings, Signal, QUrl
+from PySide6.QtCore import QObject, QSettings, Signal, QUrl, QTimer
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel,
-                              QComboBox, QLineEdit, QPushButton, QSpinBox, QGroupBox, QCheckBox, QRadioButton, QButtonGroup)
+                              QComboBox, QLineEdit, QPushButton, QSpinBox, QGroupBox, QCheckBox, QRadioButton, QButtonGroup, QGridLayout)
 
 from modules.activity import ActivityState
 from modules.credentials import CredentialStore
@@ -29,6 +30,37 @@ class AIConfig(QObject):
         self.key = self.store.read(self.provider) if self.remember_key else ""
         self.enabled = self.settings.value("ai/enabled", True, type=bool)
         self.cache = {}
+        self._keys = {self.provider: self.key}
+        self.verified = set()
+        self.demo = False
+        self._remember_current()
+
+    def _remember_current(self):
+        prefix = "ai/providers/" + self.provider
+        for key in ("model", "endpoint"):
+            if not self.settings.contains(prefix + "/" + key):
+                self.settings.setValue(prefix + "/" + key, getattr(self, key))
+
+    def preferences(self, provider):
+        preset = PROVIDERS[provider]
+        prefix = "ai/providers/" + provider
+        remember = self.settings.value(prefix + "/remember", self.remember_key if provider == self.provider else False, type=bool)
+        key = self._keys.get(provider)
+        if key is None:
+            key = self.store.read(provider) if remember and provider not in ("horde", "ollama", "ollama_cloud") else ""
+        return {"provider": provider, "endpoint": self.settings.value(prefix + "/endpoint", preset["endpoint"]),
+                "model": self.settings.value(prefix + "/model", preset["model"]), "key": key, "remember_key": remember}
+
+    def identity(self):
+        digest = hashlib.sha256(self.key.encode()).hexdigest()
+        return self.provider, self.endpoint, self.model, digest
+
+    def mark_verified(self):
+        self.verified.add(self.identity())
+
+    @property
+    def is_verified(self):
+        return self.identity() in self.verified
 
     def values(self):
         return {"provider": self.provider, "endpoint": self.endpoint, "model": self.model,
@@ -36,255 +68,440 @@ class AIConfig(QObject):
 
     def save(self, values):
         validate_endpoint(values["endpoint"])
+        provider = values["provider"]
+        if provider not in PROVIDERS:
+            raise ValueError("Provedor inválido.")
+        key = values.get("key", "")
+        remember = bool(values.get("remember_key", False)) and provider not in ("horde", "ollama", "ollama_cloud")
+        if remember and key:
+            self.store.write(provider, key)
+        elif self.settings.value("ai/providers/" + provider + "/remember", False, type=bool):
+            self.store.delete(provider)
+        self.provider, self.endpoint = provider, values["endpoint"].strip()
+        self.model, self.key = values["model"].strip(), key
         self.enabled = bool(values.get("enabled", True))
-        self.settings.setValue("ai/enabled", self.enabled)
-        self.provider, self.endpoint = values["provider"], values["endpoint"]
-        self.model, self.key = values["model"].strip(), values.get("key", "")
-        self.answer_tokens = int(values.get("answer_tokens", 900))
-        remember = bool(values.get("remember_key", False))
-        if remember and self.key:
-            self.store.write(self.provider, self.key)
-        elif self.remember_key:
-            self.store.delete(self.provider)
+        self.answer_tokens = max(128, min(2400, int(values.get("answer_tokens", 900))))
         self.remember_key = remember
+        self._keys[provider] = key
+        self.settings.setValue("ai/enabled", self.enabled)
         self.settings.setValue("ai/remember_key", remember)
-        self.settings.setValue("ai/providers/" + self.provider + "/model", self.model)
-        self.settings.setValue("ai/providers/" + self.provider + "/endpoint", self.endpoint)
+        self.settings.setValue("ai/providers/" + provider + "/remember", remember)
+        for name in ("model", "endpoint"):
+            self.settings.setValue("ai/providers/" + provider + "/" + name, getattr(self, name))
         for name in ("provider", "endpoint", "model", "answer_tokens"):
             self.settings.setValue("ai/" + name, getattr(self, name))
         self.changed.emit()
 
 
+def suggested_model(provider, models, current=""):
+    if current in models:
+        return current
+    if provider == "horde":
+        return "auto" if "auto" in models else models[0] if models else ""
+    preferences = {"ollama": ("llama3.2:3b", "qwen3:0.6b", "llama3.2:1b"),
+                   "anthropic": ("haiku", "sonnet"), "openai": ("nano", "mini"),
+                   "gemini": ("flash-lite", "flash"), "openrouter": (":free", "free")}
+    for token in preferences.get(provider, ()):
+        match = next((model for model in models if token in model.lower()), None)
+        if match:
+            return match
+    return models[0] if models else ""
+
+
 class AISettingsPanel(QWidget):
-    listed = Signal(object, str)
+    listed = Signal(int, object, str)
 
     def __init__(self, config):
         super().__init__()
-        self.config = config
-        self._busy = False
-        self._closed = False
+        self.config, self._closed, self._busy = config, False, False
+        self._generation = 0
+        self._known_models = []
+        self._syncing = False
         layout = QVBoxLayout(self)
-        title = QLabel("Sua análise, sua IA")
+        title = QLabel("Escolha quem vai analisar")
         title.setObjectName("title")
         layout.addWidget(title)
-        intro = QLabel("A explicação local funciona imediatamente. Escolher um modelo não inicia inferência.\n"
-                       "A IA só pode analisar depois da captura; o Ollama descarrega o modelo ao concluir.")
+        intro = QLabel("Conecte uma vez, escolha o modelo e confira a confirmação. A coleta funciona sem IA; nenhum modelo trabalha durante a captura.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        self.modes = {}
+        choices = QHBoxLayout()
+        self.modes, self.mode_buttons = {}, {}
         self.mode_group = QButtonGroup(self)
-        for key, caption in (("integrated", "Análise integrada · sem IA e sem configuração"),
-                             ("horde", "Online · grátis, sem conta e sem download"),
-                             ("ollama", "Local · funciona sem internet após baixar o modelo"),
-                             ("advanced", "Já uso outro serviço · configuração avançada")):
-            button = QRadioButton(caption)
-            self.mode_group.addButton(button)
-            self.modes[key] = button
-            layout.addWidget(button)
+        self.card_group = QButtonGroup(self)
+        for mode, label in (("integrated", "Integrada\nSem IA"), ("horde", "Online gratuita\nSem conta"),
+                            ("ollama", "Local neste PC\nOllama / Llama"), ("advanced", "Conectar minha IA\nClaude, GPT, Gemini…")):
+            proxy = QRadioButton(self)
+            proxy.hide()
+            self.mode_group.addButton(proxy)
+            self.modes[mode] = proxy
+            button = QPushButton(label)
+            button.setObjectName("aiMode")
+            button.setCheckable(True)
+            button.setMinimumHeight(64)
+            button.clicked.connect(lambda checked=False, key=mode: self.choose_mode(key))
+            self.card_group.addButton(button)
+            self.mode_buttons[mode] = button
+            choices.addWidget(button)
+        layout.addLayout(choices)
         self.active = QLabel()
         self.active.setObjectName("card")
         self.active.setWordWrap(True)
         layout.addWidget(self.active)
+        self.connection = QGroupBox("Conexão e modelo")
+        connection_layout = QVBoxLayout(self.connection)
         form = QFormLayout()
         self.form = form
-        self.provider = QComboBox()
-        for value, preset in PROVIDERS.items():
-            self.provider.addItem(preset["name"], value)
-        self.provider.setCurrentIndex(self.provider.findData(config.provider))
-        self.model = QComboBox()
-        self.model.setEditable(True)
-        self.model.addItem(config.model)
-        self.model.setMinimumWidth(230)
+        self.provider = QComboBox(self)
+        for key, preset in PROVIDERS.items():
+            self.provider.addItem(preset["name"], key)
+        self.provider.hide()
+        self.service = QComboBox()
+        for key in ("anthropic", "openai", "gemini", "openrouter", "lmstudio", "ollama_cloud", "custom"):
+            self.service.addItem(PROVIDERS[key]["name"], key)
+        form.addRow("Qual serviço você usa?", self.service)
         self.key = QLineEdit()
         self.key.setEchoMode(QLineEdit.Password)
-        self.key.setPlaceholderText("Sem marcar Lembrar, a chave fica apenas na memória")
-        self.key.setText(config.key)
-        form.addRow("Onde analisar", self.provider)
-        form.addRow("Modelo para analisar", self.model)
-        form.addRow("Sua chave", self.key)
-        layout.addLayout(form)
-        self.remember = QCheckBox("Lembrar minha chave no cofre do Windows")
-        self.remember.setChecked(config.remember_key)
-        self.remember.setEnabled(config.store.api is not None)
-        layout.addWidget(self.remember)
+        self.key.setPlaceholderText("Cole aqui sua chave de API")
+        self.key_row = QWidget()
+        key_layout = QHBoxLayout(self.key_row)
+        key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.addWidget(self.key, 1)
+        self.guide = QPushButton("Obter minha chave")
+        self.guide.clicked.connect(self.open_guide)
+        key_layout.addWidget(self.guide)
+        form.addRow("Credencial", self.key_row)
+        self.remember = QCheckBox("Guardar no cofre do Windows")
+        form.addRow("", self.remember)
+        self.model = QComboBox()
+        self.model.setMinimumWidth(250)
+        form.addRow("Modelo que será usado", self.model)
+        connection_layout.addLayout(form)
         self.help = QLabel()
         self.help.setWordWrap(True)
-        layout.addWidget(self.help)
+        connection_layout.addWidget(self.help)
         controls = QHBoxLayout()
-        self.check = QPushButton("Detectar modelos / testar conexão")
+        self.check = QPushButton("Conectar e buscar modelos")
         self.check.clicked.connect(self.discover)
-        self.save = QPushButton("Usar esta configuração")
+        self.save = QPushButton("Usar este modelo")
         self.save.clicked.connect(self.apply)
-        self.guide = QPushButton("Abrir instruções do serviço")
-        self.guide.clicked.connect(self.open_guide)
-        for widget in (self.check, self.save, self.guide):
-            controls.addWidget(widget)
-        layout.addLayout(controls)
-        advanced = QGroupBox("Opções de conexão")
-        self.connection_options = advanced
-        advanced.setCheckable(True)
-        advanced.setChecked(False)
-        advanced_form = QFormLayout(advanced)
-        self.endpoint = QLineEdit(config.endpoint)
+        controls.addWidget(self.check)
+        controls.addWidget(self.save)
+        connection_layout.addLayout(controls)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        connection_layout.addWidget(self.status)
+        self.connection_options = QGroupBox("Opções avançadas")
+        self.connection_options.setCheckable(True)
+        self.connection_options.setChecked(False)
+        advanced = QFormLayout(self.connection_options)
+        self.endpoint = QLineEdit()
         self.tokens = QSpinBox()
         self.tokens.setRange(128, 2400)
         self.tokens.setValue(config.answer_tokens)
-        advanced_form.addRow("Endereço", self.endpoint)
-        advanced_form.addRow("Limite de resposta (tokens)", self.tokens)
-        advanced_widgets = (self.endpoint, self.tokens, advanced_form.labelForField(self.endpoint),
-                            advanced_form.labelForField(self.tokens))
-        for widget in advanced_widgets:
-            widget.setVisible(False)
-        advanced.toggled.connect(lambda shown: [widget.setVisible(shown) for widget in advanced_widgets])
-        layout.addWidget(advanced)
-        self.status = QLabel("Nenhum modelo foi carregado. O teste consulta apenas a lista de modelos.")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        advanced.addRow("Endereço da API", self.endpoint)
+        advanced.addRow("Limite da resposta", self.tokens)
+        self.advanced_body = (self.endpoint, self.tokens, advanced.labelForField(self.endpoint), advanced.labelForField(self.tokens))
+        for field in self.advanced_body:
+            field.hide()
+        self.connection_options.toggled.connect(lambda visible: [field.setVisible(visible) for field in self.advanced_body])
+        connection_layout.addWidget(self.connection_options)
+        layout.addWidget(self.connection)
+        self.download_group = QGroupBox("Adicionar um modelo local · download opcional")
+        self.download_group.setCheckable(True)
+        self.download_group.setChecked(False)
+        downloads = QVBoxLayout(self.download_group)
         self.models = ModelManagerPanel(config)
-        self.models.prepare_settings = self.apply
-        layout.addWidget(self.models)
+        self.models.prepare_settings = self.prepare_model_setup
+        self.models.prepared.connect(lambda name: self.schedule_discovery())
+        self.models.hide()
+        downloads.addWidget(self.models)
+        self.download_group.toggled.connect(self.models.setVisible)
+        layout.addWidget(self.download_group)
         layout.addStretch()
+        self.auto_timer = QTimer(self)
+        self.auto_timer.setSingleShot(True)
+        self.auto_timer.setInterval(500)
+        self.auto_timer.timeout.connect(self.discover)
         self.provider.currentIndexChanged.connect(self.use_preset)
+        self.service.currentIndexChanged.connect(self.select_service)
+        self.model.currentIndexChanged.connect(self.select_model)
+        self.key.textEdited.connect(self.credential_edited)
+        self.key.editingFinished.connect(self.schedule_discovery)
         self.listed.connect(self.accept_models)
         config.activity.changed.connect(self.update_state)
         config.changed.connect(self.sync_config)
-        self.help.setText(PROVIDERS[config.provider]["help"])
-        self.update_key_fields()
-        self.models.setVisible(config.provider in ("ollama", "ollama_cloud"))
-        for mode, button in self.modes.items():
-            button.clicked.connect(lambda checked=False, key=mode: self.choose_mode(key))
+        self._set_provider(config.provider)
         self.sync_mode()
         self.update_state()
+
+    def mode(self):
+        return next((key for key, button in self.modes.items() if button.isChecked()), "horde")
 
     def choose_mode(self, mode):
         if self.config.activity.busy:
             return
-        if mode in ("horde", "ollama"):
-            self.provider.setCurrentIndex(self.provider.findData(mode))
         self.modes[mode].setChecked(True)
-        self.update_mode_controls()
-        if mode != "advanced":
+        if mode == "advanced":
+            provider = self.service.currentData()
+        elif mode == "integrated":
+            self.config.save({**self.config.values(), "remember_key": self.config.remember_key, "enabled": False})
+            self.sync_mode()
+            return
+        else:
+            provider = mode
+        self._set_provider(provider)
+        self.modes[mode].setChecked(True)
+        if mode == "horde":
             self.apply()
+        elif mode == "ollama":
+            self.apply()
+        self.update_mode_controls()
+        self.schedule_discovery()
 
-    def sync_mode(self):
-        mode = ("integrated" if not self.config.enabled else self.config.provider
-                if self.config.provider in ("horde", "ollama") else "advanced")
-        self.modes[mode].setChecked(True)
+    def _set_provider(self, provider):
+        self._syncing = True
+        self.provider.setCurrentIndex(self.provider.findData(provider))
+        self._load_provider(provider)
+        self._syncing = False
+
+    def _load_provider(self, provider):
+        self._generation += 1
+        self._busy = False
+        self._known_models = []
+        preferences = self.config.preferences(provider)
+        self.endpoint.setText(preferences["endpoint"])
+        self.key.setText(preferences["key"])
+        self.remember.setChecked(preferences["remember_key"])
+        self.model.blockSignals(True)
+        self.model.clear()
+        current = preferences["model"]
+        if current:
+            self.model.addItem("Automático · modelo disponível na fila" if current == "auto" else current, current)
+        self.model.setEditable(provider == "custom")
+        self.model.blockSignals(False)
+        service_index = self.service.findData(provider)
+        if service_index >= 0:
+            self.service.blockSignals(True)
+            self.service.setCurrentIndex(service_index)
+            self.service.blockSignals(False)
+        self.help.setText(PROVIDERS[provider]["help"])
+        if self.models.provider != provider:
+            self.models.set_provider(provider)
+        self.status.setText("Modelo salvo; disponibilidade ainda não conferida." if current else "Conecte o serviço para carregar os modelos da sua conta.")
         self.update_mode_controls()
 
-    def update_mode_controls(self):
-        mode = next((key for key, button in self.modes.items() if button.isChecked()), "horde")
-        advanced = mode == "advanced"
-        enabled = mode != "integrated"
-        for widget in (self.provider, self.form.labelForField(self.provider)):
-            widget.setVisible(advanced)
-        for widget in (self.model, self.form.labelForField(self.model)):
-            widget.setVisible(enabled and mode != "horde")
-        for widget in (self.check, self.save, self.guide, self.help):
-            widget.setVisible(enabled)
-        self.check.setText("Verificar serviço online" if mode == "horde" else "Listar modelos disponíveis")
-        self.connection_options.setVisible(mode in ("ollama", "advanced"))
-        self.models.setVisible(enabled and self.provider.currentData() in ("ollama", "ollama_cloud"))
-        self.update_key_fields()
-        description = ("Análise integrada ativa · sem modelo, conta ou envio de dados." if not self.config.enabled else
-                       "Online anônima ativa · usa fila comunitária após sua confirmação." if self.config.provider == "horde" else
-                       f"Configuração ativa: {PROVIDERS[self.config.provider]['name']} · {self.config.model or 'escolha o modelo'}.")
-        self.active.setText(description + "\nEscolher um modo não carrega o modelo nem inicia análise.")
+    def use_preset(self):
+        if self._syncing:
+            return
+        self._load_provider(self.provider.currentData())
+        mode = self.provider.currentData() if self.provider.currentData() in ("horde", "ollama") else "advanced"
+        self.modes[mode].setChecked(True)
+        self.update_mode_controls()
+        self.schedule_discovery()
+
+    def select_service(self):
+        if self._syncing:
+            return
+        self._set_provider(self.service.currentData())
+        self.modes["advanced"].setChecked(True)
+        self.update_mode_controls()
+        self.schedule_discovery()
+
+    def model_id(self):
+        if self.model.isEditable() and self.model.currentText() != self.model.itemText(self.model.currentIndex()):
+            return self.model.currentText().strip()
+        return self.model.currentData() or self.model.currentText().strip()
 
     def values(self):
         return {"provider": self.provider.currentData(), "endpoint": self.endpoint.text().strip(),
-                "model": self.model.currentText().strip(), "key": self.key.text(),
-                "answer_tokens": self.tokens.value(), "remember_key": self.remember.isChecked(),
-                "enabled": not self.modes["integrated"].isChecked()}
+                "model": self.model_id(), "key": self.key.text().strip(), "answer_tokens": self.tokens.value(),
+                "remember_key": self.remember.isChecked(), "enabled": self.mode() != "integrated"}
 
-    def use_preset(self):
-        preset = PROVIDERS[self.provider.currentData()]
-        remembered = "ai/providers/" + self.provider.currentData()
-        self.endpoint.setText(self.config.settings.value(remembered + "/endpoint", preset["endpoint"]))
-        self.model.clear()
-        self.model.addItem(self.config.settings.value(remembered + "/model", preset["model"]))
-        self.key.setText(self.config.store.read(self.provider.currentData()) if self.remember.isChecked() else "")
-        self.help.setText(preset["help"])
-        self.update_key_fields()
-        self.models.setVisible(self.provider.currentData() in ("ollama", "ollama_cloud"))
-        self.models.set_provider(self.provider.currentData())
-        if hasattr(self, "modes"):
-            mode = self.provider.currentData() if self.provider.currentData() in ("horde", "ollama") else "advanced"
-            self.modes[mode].setChecked(True)
-            self.update_mode_controls()
+    def sync_mode(self):
+        mode = "integrated" if not self.config.enabled else self.config.provider if self.config.provider in ("horde", "ollama") else "advanced"
+        self.modes[mode].setChecked(True)
+        self.update_mode_controls()
 
     def sync_config(self):
-        self.model.setCurrentText(self.config.model)
-        self.sync_mode()
+        if self.config.provider == self.provider.currentData() and self.config.model:
+            self.model.blockSignals(True)
+            index = next((i for i in range(self.model.count()) if (self.model.itemData(i) or self.model.itemText(i)) == self.config.model), -1)
+            if index < 0:
+                self.model.addItem(self.config.model, self.config.model)
+                index = self.model.count() - 1
+            self.model.setCurrentIndex(index)
+            self.model.blockSignals(False)
+        self.update_active()
 
-    def shutdown(self):
-        self._closed = True
-        self.models.shutdown()
+    def update_active(self):
+        if not self.config.enabled:
+            self.active.setText("EM USO · Análise integrada\nSem modelo, conta ou envio de dados.")
+        else:
+            verified = "disponibilidade conferida" if self.config.is_verified else "disponibilidade ainda não conferida"
+            model = "automático na fila" if self.config.model == "auto" else self.config.model or "modelo não escolhido"
+            self.active.setText(f"EM USO · {PROVIDERS[self.config.provider]['name']}\n{model} · {verified}")
+        self.save.setText("Modelo em uso" if self.model_id() == self.config.model and self.provider.currentData() == self.config.provider and self.config.enabled else "Usar este modelo")
 
     def update_key_fields(self):
-        visible = self.provider.currentData() not in ("ollama", "ollama_cloud", "horde")
+        visible = self.mode() == "advanced" and self.provider.currentData() not in ("ollama_cloud", "lmstudio")
+        self.key_row.setVisible(visible)
+        self.form.labelForField(self.key_row).setVisible(visible)
         self.key.setVisible(visible)
-        self.form.labelForField(self.key).setVisible(visible)
         self.remember.setVisible(visible)
+        self.guide.setText("Obter minha chave" if visible else "Abrir instruções")
+
+    def update_mode_controls(self):
+        mode = self.mode()
+        self.connection.setVisible(mode != "integrated")
+        for key, button in self.mode_buttons.items():
+            button.setChecked(key == mode)
+        advanced = mode == "advanced"
+        self.service.setVisible(advanced)
+        self.form.labelForField(self.service).setVisible(advanced)
+        show_model = mode not in ("integrated", "horde")
+        self.model.setVisible(show_model)
+        self.form.labelForField(self.model).setVisible(show_model)
+        self.save.setVisible(show_model)
+        self.connection_options.setVisible(advanced and self.provider.currentData() in ("custom", "lmstudio"))
+        self.download_group.setVisible(mode == "ollama" or advanced and self.provider.currentData() == "ollama_cloud")
+        self.update_key_fields()
+        self.update_active()
+        self.update_state()
 
     def apply(self):
         if self.config.activity.busy or self._busy:
-            self.status.setText("Aguarde a captura, a análise ou a preparação dos modelos terminar.")
+            return False
+        values = self.values()
+        if values["enabled"] and not values["model"]:
+            self.status.setText("Conecte o serviço e escolha um modelo da lista.")
             return False
         try:
-            self.config.save(self.values())
-            message = ("Análise integrada selecionada. Sem modelo ou envio de dados." if not self.config.enabled else
-                       "Online anônima selecionada. Nenhuma conta ou chave é necessária." if self.config.provider == "horde" else
-                       "Modelo local selecionado. O modelo só trabalha quando a análise for solicitada." if self.config.provider == "ollama" else
-                       "Configuração salva. Nenhuma inferência foi iniciada.")
-            self.status.setText(message)
-        except (ValueError, TypeError, OSError) as error:
+            self.config.save(values)
+            self.status.setText("Seleção salva. O modelo só trabalha quando você solicitar a análise.")
+            return True
+        except (ValueError, OSError) as error:
             self.status.setText(str(error))
             return False
-        return True
+
+    def prepare_model_setup(self):
+        if self.config.activity.busy:
+            return False
+        values = self.values()
+        if not values["model"]:
+            values["model"] = PROVIDERS[values["provider"]]["model"]
+        try:
+            self.config.save(values)
+            return True
+        except (ValueError, OSError) as error:
+            self.status.setText(str(error))
+            return False
+
+    def select_model(self):
+        if not self._syncing and self.model_id() in self._known_models and not self._busy:
+            if self.apply():
+                self.config.mark_verified()
+                self.config.changed.emit()
+
+    def credential_edited(self):
+        self._generation += 1
+        self._busy = False
+        if len(self.key.text().strip()) >= 12:
+            self.schedule_discovery()
+
+    def schedule_discovery(self):
+        if not self.config.demo and not self._closed and self.mode() != "integrated":
+            self.auto_timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.schedule_discovery()
 
     def discover(self):
-        if self.config.activity.busy or self._busy:
+        if self.config.activity.busy or self._busy or self._closed or self.mode() == "integrated":
             return
         values = self.values()
+        provider = values["provider"]
+        if provider in ("anthropic", "openai", "gemini", "openrouter") and not values["key"]:
+            self.status.setText("1 · Abra o painel pelo botão Obter minha chave. 2 · Cole a chave aqui; os modelos serão carregados automaticamente.")
+            return
         try:
             validate_endpoint(values["endpoint"])
         except ValueError as error:
             self.status.setText(str(error))
             return
+        self._generation += 1
+        generation = self._generation
+        local_runtime = provider in ("ollama", "ollama_cloud")
+        if local_runtime:
+            try:
+                self.config.activity.begin_maintenance("model_discovery")
+            except RuntimeError as error:
+                self.status.setText(str(error))
+                return
         self._busy = True
-        self.status.setText("Consultando modelos disponíveis, sem gerar texto…")
+        self.status.setText("Conectando e buscando modelos… nenhum modelo será carregado.")
         self.update_state()
-
         def run():
             try:
+                if local_runtime:
+                    self.models.runtime.start(values["endpoint"], lambda: self._closed)
                 models, error = list_models(values), ""
             except Exception as exception:
                 models, error = [], str(exception)
+            finally:
+                if local_runtime:
+                    self.config.activity.end_maintenance("model_discovery")
             if not self._closed:
-                self.listed.emit(models, error)
-        threading.Thread(target=run, name="sys-pulse-models", daemon=True).start()
+                self.listed.emit(generation, models, error)
+        threading.Thread(target=run, name="sys-pulse-model-list", daemon=True).start()
 
-    def accept_models(self, models, error):
+    def accept_models(self, generation, models, error):
+        if generation != self._generation or self._closed:
+            return
         self._busy = False
-        current = self.model.currentText()
-        if models:
+        self._known_models = models
+        if error:
+            self.status.setText(error + " A seleção anterior continua salva.")
+            if self.mode() == "ollama":
+                self.download_group.setChecked(True)
+        elif not models:
+            self.status.setText("Nenhum modelo disponível. Instale ou baixe um modelo para continuar.")
+            if self.mode() == "ollama":
+                self.download_group.setChecked(True)
+        else:
+            provider = self.provider.currentData()
+            current = self.model_id()
+            choice = suggested_model(provider, models, current)
+            self.model.blockSignals(True)
             self.model.clear()
-            self.model.addItems(models)
-            choice = current if current in models else next((name for name in models if "llama" in name.lower()), models[0])
-            self.model.setCurrentText(choice)
-        self.status.setText(error or f"Conexão pronta: {len(models)} modelo(s). Nenhum modelo foi carregado. Salve sua escolha.")
+            for model in models:
+                self.model.addItem(model + (" · sugestão econômica" if model == choice and not current else ""), model)
+            self.model.setCurrentIndex(models.index(choice))
+            self.model.blockSignals(False)
+            if self.apply():
+                self.config.mark_verified()
+                self.config.changed.emit()
+                self.status.setText(f"Pronto · {len(models)} modelo(s) disponível(is). Modelo selecionado: {choice}.")
+            else:
+                self.status.setText("Modelos disponíveis. Use este modelo depois da captura ou da análise atual.")
         self.update_state()
 
     def update_state(self):
-        available = not self.config.activity.busy and not self._busy
-        for button in self.modes.values():
+        available = not self.config.activity.busy
+        for button in (*self.modes.values(), *self.mode_buttons.values()):
             button.setEnabled(available)
-        self.remember.setEnabled(available and self.config.store.api is not None)
-        for widget in (self.provider, self.model, self.key, self.check, self.save, self.endpoint, self.tokens):
+        for widget in (self.provider, self.service, self.key, self.model, self.endpoint, self.tokens):
             widget.setEnabled(available)
+        self.check.setEnabled(available and not self._busy)
+        self.save.setEnabled(available and not self._busy)
+        self.remember.setEnabled(available and self.config.store.api is not None)
 
     def open_guide(self):
         url = PROVIDERS[self.provider.currentData()]["url"]
         if url:
             QDesktopServices.openUrl(QUrl(url))
+
+    def shutdown(self):
+        self._closed = True
+        self.auto_timer.stop()
+        self.models.shutdown()

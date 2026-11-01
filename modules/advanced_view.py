@@ -323,7 +323,7 @@ class AdvancedPanel(QWidget):
                 except (OSError, ValueError):
                     pass
         self.raw.setPlainText("\n".join(text))
-        self.ai.set_result(result)
+        self.ai.set_result({**result, "ai_output": destination} if destination else result)
         self.tabs.setCurrentIndex(0)
         self.status.setText("DADOS SIMULADOS — exemplo de explicação" if result.get("demo") else f"Análise concluída e salva em {destination}.")
         self.update_buttons()

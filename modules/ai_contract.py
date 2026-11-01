@@ -26,6 +26,8 @@ def render_explanation(text, payload):
         raise ValueError("A IA tentou apresentar uma conclusão fora do contrato.")
     known = {row["id"]: row for row in payload.get("evidence", [])}
     lines = ["PRIORIZAÇÃO COMPLEMENTAR · IA", ""]
+    if payload.get("stress"):
+        lines += ["Sessão com carga induzida: utilização alta pode ser esperada. Compare antes, durante e recuperação.", ""]
     selected = set()
     for finding in result["findings"]:
         if not isinstance(finding, dict):

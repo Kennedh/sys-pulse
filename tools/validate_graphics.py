@@ -86,8 +86,15 @@ def main():
         clear(context, target, color)
         present(swap, 0, 0)
 
+    live = []
+    live_timer = QTimer()
+    live_timer.setInterval(2000)
+    live_timer.timeout.connect(lambda: live.append(capture.live_snapshot()))
+    live_timer.start()
+
     def finish():
         timer.stop()
+        live_timer.stop()
         code = capture.stop()
         frame_file = capture.path or destination / "frametimes.csv"
         if frame_file.exists():
@@ -96,13 +103,14 @@ def main():
         else:
             result = {"series": [], "rows": 0, "invalid_rows": 0, "error": "CSV não gerado"}
         print("Plataforma Qt:", application.platformName(), flush=True)
+        result["live_snapshots"] = live
         result["synthetic"] = True
         result["injected_pause_ms"] = 200
         result["exit_code"] = code
         (destination / "resultado.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps({"series": [{k: r[k] for k in ("count", "median_ms", "p99_ms", "max_ms", "long_intervals", "metric", "alignment")}
                                      for r in result["series"]], "rows": result["rows"], "invalid_rows": result["invalid_rows"],
-                          "exit_code": code}, ensure_ascii=True, indent=2))
+                          "exit_code": code, "live_ok": sum(row.get("state") == "ok" for row in live)}, ensure_ascii=True, indent=2))
         for pointer in (target, texture, context, device, swap):
             method(pointer, 2, ctypes.c_uint32)(pointer)
         window.close()

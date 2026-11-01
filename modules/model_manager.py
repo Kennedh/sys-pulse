@@ -104,6 +104,8 @@ class OllamaRuntime:
         self._lock = threading.Lock()
 
     def start(self, endpoint, cancelled):
+        if cancelled():
+            raise DownloadCancelled()
         base = ollama_base(endpoint)
         try:
             return request_json(base + "/version", timeout=2)
@@ -116,6 +118,8 @@ class OllamaRuntime:
         if not executable:
             raise ValueError("Instale o Ollama pelo botão Baixar Ollama e tente novamente.")
         with self._lock:
+            if cancelled():
+                raise DownloadCancelled()
             if not self.process or self.process.poll() is not None:
                 environment = {**os.environ, "OLLAMA_HOST": "127.0.0.1:11434"}
                 self.process = subprocess.Popen([executable, "serve"], env=environment,

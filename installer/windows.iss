@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "3.1.0"
+#define AppVersion "3.2.0"
 #endif
 #ifndef ProjectRoot
 #define ProjectRoot ".."
@@ -38,6 +38,7 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDesc
 Name: "integrated"; Description: "Usar análise integrada, sem download de modelo"; GroupDescription: "Análise inicial:"; Flags: exclusive
 Name: "localai"; Description: "Preparar IA local e escolher o modelo após instalar (download separado)"; GroupDescription: "Análise inicial:"; Flags: exclusive unchecked
 Name: "onlineai"; Description: "Configurar IA anônima na nuvem, sem login ou chave (fila comunitária)"; GroupDescription: "Análise inicial:"; Flags: exclusive unchecked
+Name: "latencymon"; Description: "Preparar instalação opcional do LatencyMon pelo site oficial"; GroupDescription: "Ferramentas de diagnóstico:"; Flags: unchecked
 [Files]
 Source: "{#ProjectRoot}\dist\SysPulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
@@ -53,4 +54,5 @@ begin
   Result := '';
   if WizardIsTaskSelected('localai') then Result := '--setup-local';
   if WizardIsTaskSelected('onlineai') then Result := '--setup-online';
+  if WizardIsTaskSelected('latencymon') then Result := Result + ' --setup-tools';
 end;
