@@ -314,7 +314,7 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A versão 3.2 passou com 188 testes no Windows. O fluxo real conferiu conexão ao Ollama sem carregar pesos, cena 3D na RTX 3050, quadros Direct3D durante a captura, consulta de drivers e assinatura do instalador LatencyMon. Claude foi validado por contratos simulados, sem chamada autenticada real. Medições e limites estão em [validação 3.2](docs/validacao-3.2.md).
+A versão 3.2 passou com 188 testes no Windows e 187 nos outros três ambientes nativos, com um teste exclusivo de Windows não aplicável. Os quatro pacotes passaram nas verificações e estão publicados em Releases. O fluxo real conferiu conexão ao Ollama sem carregar pesos, cena 3D na RTX 3050, quadros Direct3D durante a captura, consulta de drivers e assinatura do instalador LatencyMon. Claude foi validado por contratos simulados, sem chamada autenticada real. Medições e limites estão em [validação 3.2](docs/validacao-3.2.md).
 
 O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem. As [validações 3.1](docs/validacao-3.1.md) e [3.0](docs/validacao-3.0.md) preservam os resultados anteriores nos quatro sistemas.
 

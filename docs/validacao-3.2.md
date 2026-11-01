@@ -70,3 +70,19 @@ O executável Windows corrigido concluiu a cena 3D em 3,05 s: 73 quadros, RTX 30
 188 testes passaram no Windows. Os resultados brutos, os instaladores baixados e as capturas locais ficam em diagnosticos/validacao-3.2 e diagnosticos/validacao-grafica, fora do Git.
 
 O pacote Windows final passou na integridade do ZIP, abertura de demonstração e auxiliares CPU/RAM de dois segundos. O validador preservou a instalação local preexistente; instalação e remoção em pasta personalizada ficam para o ambiente limpo do CI. Os demais resultados nativos devem ser conferidos no workflow associado à tag da versão.
+
+
+## Ambientes nativos e publicação
+
+A execução [41344679944](https://github.com/Kennedh/sys-pulse/actions/runs/41344679944) validou a tag v3.2.0, no commit dfdc5ee:
+
+| Ambiente | Testes | Pacote |
+|---|---|---|
+| Windows x64 | 188 passaram | ZIP, abertura, CPU/RAM, instalação e desinstalação em pasta personalizada |
+| Ubuntu 22.04 x64 | 187 passaram, um exclusivo de Windows não aplicável | Abertura, CPU/RAM, instalação e remoção |
+| macOS 15 Apple Silicon | 187 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e CPU/RAM |
+| macOS 15 Intel | 187 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e CPU/RAM |
+
+O job de publicação concluiu após os quatro builds. A [release v3.2.0](https://github.com/Kennedh/sys-pulse/releases/tag/v3.2.0) foi confirmada como a versão mais recente, com oito arquivos de distribuição e SHA256SUMS.txt. Os oito hashes do manifesto correspondem aos digests dos assets informados pelo GitHub.
+
+Os runners não validam carga GPU real, sensores físicos, uma partida de jogo ou uso prolongado. A cena GPU foi verificada localmente no código-fonte e no executável Windows pelos testes curtos registrados acima.
