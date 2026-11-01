@@ -1,12 +1,14 @@
 import threading
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 import psutil
 
 from modules.network import NetworkMonitor
 from modules.sensors import SensorService
 from modules.windows_counters import WindowsCounters
+from modules.windows_processes import WindowsProcessTimes
 
 
 def process_io_rates(previous, current, seconds):
@@ -64,12 +66,18 @@ class MonitorWorker:
         self._process_thread = None
         self._process_snapshot = ([], None, None)
         self._process_error = None
+        self._native_times = WindowsProcessTimes()
+        self._previous_times = {}
+        self._times_at = None
+        self.target_pid = None
 
     def start(self):
         if any(thread and thread.is_alive() for thread in (self._thread, self._process_thread)):
             return
         self._process_io = {}
         self._process_seen = set()
+        self._previous_times = {}
+        self._times_at = None
         self._stop.clear()
         self.sensors.start()
         self._thread = threading.Thread(target=self.run, name="sys-pulse-collector", daemon=True)
@@ -90,6 +98,12 @@ class MonitorWorker:
     def _processes(self, gpu_processes=None):
         rows = []
         now = time.monotonic()
+        native = self._native_times.sample() if self._native_times else None
+        total_memory = psutil.virtual_memory().total
+        elapsed = now - self._times_at if self._times_at is not None else 0
+        previous_times = self._previous_times
+        self._previous_times = native or {}
+        self._times_at = now
         previous_io, self._process_io = self._process_io, {}
         previous_seen, self._process_seen = self._process_seen, set()
         for process in psutil.process_iter(["pid", "name"]):
@@ -97,18 +111,28 @@ class MonitorWorker:
                 continue
             try:
                 with process.oneshot():
-                    created = process.create_time()
+                    timing = native.get(process.pid) if native is not None else None
+                    if native is not None and timing is None:
+                        continue
+                    created = timing[0] if timing else process.create_time()
                     key = (process.pid, created)
-                    cpu = process.cpu_percent()
+                    if native is None:
+                        cpu = process.cpu_percent()
+                    else:
+                        previous = previous_times.get(process.pid)
+                        cpu = ((timing[1] - previous[1]) / elapsed * 100
+                               if timing and previous and previous[0] == created and elapsed > 0
+                               and timing[1] >= previous[1] else None)
                     self._process_seen.add(key)
                     row = {"pid": process.pid, "name": process.info["name"] or "?",
                                  "created": created,
-                                 "cpu_percent": round(cpu / self._cpu_count, 2) if key in previous_seen else None,
-                                 "ram_percent": round(process.memory_percent(), 2),
-                                 "rss_mb": round(process.memory_info().rss / 1024 ** 2, 1),
+                                 "cpu_percent": round(cpu / self._cpu_count, 2) if cpu is not None and key in previous_seen else None,
+                                 "ram_percent": round(timing[2] / total_memory * 100 if timing else process.memory_percent(), 2),
+                                 "rss_mb": round((timing[2] if timing else process.memory_info().rss) / 1024 ** 2, 1),
                                  "gpu_percent": (gpu_processes or {}).get(process.pid)}
                     try:
-                        current = process.io_counters()
+                        current = (SimpleNamespace(read_bytes=timing[3], write_bytes=timing[4])
+                                   if timing else process.io_counters())
                     except (psutil.Error, OSError, AttributeError, NotImplementedError):
                         current = None
                     previous, at = previous_io.get(key, (None, now))
@@ -188,6 +212,8 @@ class MonitorWorker:
                         "interrupt_percent": getattr(cpu_times, "interrupt", None),
                         "ram_percent": memory.percent, "ram_available_gb": memory.available / 1024 ** 3,
                         "ram_total_gb": memory.total / 1024 ** 3, "swap_percent": swap.percent,
+                        "commit_gb": win.get("commit_gb"), "commit_limit_gb": win.get("commit_limit_gb"),
+                        "target_pid": self.target_pid,
                         "page_reads_s": win.get("page_reads_s"),
                         "disks": disks,
                         "processes": processes, "process_age_ms": (started - process_at) * 1000 if process_at is not None else None,

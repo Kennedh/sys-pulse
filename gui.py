@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QAbstractTableModel, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QKeySequence, QShortcut, QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QStackedWidget, QProgressBar, QTabWidget, QTableView,
     QHeaderView, QSystemTrayIcon, QMenu, QStyle, QPlainTextEdit, QScrollArea)
@@ -18,6 +18,10 @@ from modules.analysis_view import AnalysisPanel
 from modules.inspection import InspectionService
 from modules.inspection_view import InspectionPanel
 from modules.advanced_view import AdvancedPanel
+from modules.activity import ActivityState
+from modules.version import VERSION
+from modules.ai_settings import AIConfig, AISettingsPanel
+from modules.overview_view import LivePanel, HardwarePanel, NetworkPanel
 
 
 STYLE = """
@@ -32,6 +36,15 @@ QPushButton#navigation { text-align: left; padding: 12px; background: #20293b; }
 QPushButton#navigation:checked { background: #425ba8; }
 QPushButton { background: #425ba8; padding: 9px 13px; border: none; border-radius: 5px; }
 QPushButton:hover { background: #566fc2; }
+QPushButton#primary { background: #627ee6; font-weight: bold; padding: 12px 18px; }
+QPushButton#primary:hover { background: #7892f5; }
+QPushButton#primary:disabled { background: #242b3a; color: #7b879b; }
+QPushButton#secondary { background: #20293b; color: #c1cce4; }
+QGroupBox { border: 1px solid #34405a; border-radius: 7px; margin-top: 14px; padding: 12px; }
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
+QScrollArea { border: none; }
+QScrollBar:vertical { background: #151d2c; width: 12px; }
+QScrollBar::handle:vertical { background: #354867; border-radius: 5px; min-height: 30px; }
 QPushButton:disabled { background: #242b3a; color: #7b879b; }
 QLineEdit, QComboBox, QPlainTextEdit { background: #191f2e; border: 1px solid #34405a; padding: 6px; }
 QTabWidget::pane { border: 1px solid #34405a; }
@@ -93,10 +106,14 @@ class App(QMainWindow):
     def __init__(self, demo=False):
         super().__init__()
         self.demo = demo
-        self.setWindowTitle("SYS-PULSE 2.2 — Monitoramento e análise" + (" — DADOS SIMULADOS" if demo else ""))
-        self.resize(1340, 900)
-        self.setMinimumSize(1080, 740)
+        self.setWindowTitle(f"SYS-PULSE {VERSION} — Monitoramento e análise" + (" — DADOS SIMULADOS" if demo else ""))
+        self.resize(1280, 820)
+        self.setMinimumSize(980, 680)
+        self.activity = ActivityState()
+        self.ai_config = AIConfig(self.activity)
+        self._capture_mode = "light"
         self.setStyleSheet(STYLE)
+        self.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "syspulse.svg")))
         self._closed = False
         self._last_sample = self._last_processes = None
         self._last_paint = 0
@@ -112,29 +129,18 @@ class App(QMainWindow):
         logo = QLabel("SYS-PULSE")
         logo.setObjectName("title")
         navigation.addWidget(logo)
-        navigation.addWidget(QLabel("Performance sob análise\nv2.2.0"))
+        navigation.addWidget(QLabel(f"Performance sob análise\nv{VERSION}"))
         self.pages = QStackedWidget()
         layout.addWidget(sidebar)
         layout.addWidget(self.pages, 1)
-        self.hardware = QPlainTextEdit("Carregando informações de hardware…")
-        self.hardware.setReadOnly(True)
+        self.hardware = HardwarePanel()
+        self.hardware.refresh_requested.connect(self.reload_hardware)
         self.pages.addWidget(self.hardware)
         self.monitor = QTabWidget()
         self.pages.addWidget(self.monitor)
-        resources = QWidget()
-        resource_layout = QVBoxLayout(resources)
-        self.uptime = QLabel()
-        resource_layout.addWidget(self.uptime)
-        self.resource_labels, self.bars = {}, {}
-        for key in ("CPU", "RAM"):
-            self.resource_labels[key] = QLabel()
-            self.bars[key] = QProgressBar()
-            resource_layout.addWidget(self.resource_labels[key])
-            resource_layout.addWidget(self.bars[key])
-        self.resource_text = QPlainTextEdit()
-        self.resource_text.setReadOnly(True)
-        resource_layout.addWidget(self.resource_text, 1)
-        self.monitor.addTab(resources, "Recursos")
+        self.dashboard = LivePanel()
+        self.dashboard.investigate.connect(lambda: self.show_page(3))
+        self.monitor.addTab(self.dashboard, "Visão geral")
         self.process_table = QTableView()
         self.process_model = ProcessTableModel()
         self.process_table.setModel(self.process_model)
@@ -142,28 +148,44 @@ class App(QMainWindow):
         self.process_table.sortByColumn(2, Qt.DescendingOrder)
         self.process_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.monitor.addTab(self.process_table, "Processos")
-        self.network = QPlainTextEdit()
-        self.network.setReadOnly(True)
+        self.network = NetworkPanel()
         self.pages.addWidget(self.network)
         self.diagnostic = DiagnosticPanel()
         diagnostic_scroll = QScrollArea()
         diagnostic_scroll.setWidgetResizable(True)
         diagnostic_scroll.setWidget(self.diagnostic)
         self.pages.addWidget(diagnostic_scroll)
-        self.analysis = AnalysisPanel()
+        self.analysis = AnalysisPanel(self.ai_config)
         self.pages.addWidget(self.analysis)
         self.inspection = InspectionPanel()
         self.pages.addWidget(self.inspection)
         self.inspection_service = InspectionService(self.inventory_ready.emit)
         self.inventory_ready.connect(self.on_inventory)
         self.inspection.refresh_requested.connect(self.refresh_inventory)
-        self.advanced = AdvancedPanel(demo=demo)
+        self.advanced = AdvancedPanel(demo=demo, ai_config=self.ai_config)
         self.pages.addWidget(self.advanced)
+        self.settings_panel = AISettingsPanel(self.ai_config)
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setWidget(self.settings_panel)
+        self.pages.addWidget(settings_scroll)
+        self.analysis.ai.configure_requested.connect(lambda: self.show_page(7))
+        self.advanced.ai.configure_requested.connect(lambda: self.show_page(7))
+        self.diagnostic.configure_ai.connect(lambda: self.show_page(7))
+        self.diagnostic.advanced_requested.connect(lambda: self.show_page(6))
+        self.advanced.capture_state.connect(self.on_advanced_state)
+        self.advanced.ready.connect(lambda generation, result, destination: self.show_page(6)
+                                    if generation == self.advanced._generation else None)
+        self.activity.changed.connect(self.on_activity)
+        self.ai_config.changed.connect(lambda: self.diagnostic.ai_button.setText(
+            f"IA opcional · {self.ai_config.model or 'escolher modelo'} · usar após a captura"))
         self.nav_buttons = []
-        for index, name in enumerate(("HARDWARE", "LIVE MONITOR", "REDE", "CAPTURA", "ANÁLISE", "DRIVERS E SAÚDE", "AVANÇADO")):
+        for index, name in ((1, "VISÃO GERAL"), (3, "INVESTIGAR"), (4, "SESSÕES"),
+                            (7, "CONFIGURAÇÕES"), (0, "HARDWARE"), (2, "REDE"), (5, "DRIVERS E SAÚDE")):
             button = QPushButton(name)
             button.setObjectName("navigation")
             button.setCheckable(True)
+            button.setProperty("page", index)
             self.nav_buttons.append(button)
             button.clicked.connect(lambda checked=False, i=index: self.show_page(i))
             navigation.addWidget(button)
@@ -190,6 +212,7 @@ class App(QMainWindow):
             self.diagnostic.status.setText("Demonstração · dados simulados · gravação desativada")
             for sample in self.worker_monitor.samples:
                 self.diagnostic.chart.add(sample)
+                self.dashboard.add_history(sample)
             for event in self.worker_monitor.markers:
                 self.diagnostic.chart.markers.append(event["monotonic"])
                 self.diagnostic.events.appendPlainText(f"#{event['id']} · {event['timestamp']}\n{event['note']}")
@@ -198,15 +221,16 @@ class App(QMainWindow):
         self.diagnostic.start_requested.connect(lambda options: self.send_command("start", options))
         self.diagnostic.stop_requested.connect(lambda: self.send_command("stop"))
         self.diagnostic.mark_requested.connect(self.mark_stutter)
-        self.diagnostic.analyze_requested.connect(self.analyze_capture)
+        self.diagnostic.analyze_requested.connect(self.open_result)
         self.diagnostic.interval_changed.connect(lambda interval: setattr(self.worker_monitor, "interval", interval))
         self.diagnostic.lhm_changed.connect(lambda enabled: setattr(self.worker_monitor.sensors, "lhm_enabled", enabled))
-        self.hotkey = GlobalHotkey(QApplication.instance(), self.mark_stutter)
+        self.network.target_changed.connect(self.change_ping_target)
+        self.hotkey = GlobalHotkey(QApplication.instance(), self.mark_stutter, enabled=not demo)
         self.diagnostic.hotkey_status.setText("Ctrl + Alt + F8: atalho global ativo" if self.hotkey.registered else self.hotkey.error)
         if not self.hotkey.registered:
             self.shortcut = QShortcut(QKeySequence("Ctrl+Alt+F8"), self)
             self.shortcut.activated.connect(self.mark_stutter)
-        self.tray = QSystemTrayIcon(self.style().standardIcon(QStyle.SP_ComputerIcon), self)
+        self.tray = QSystemTrayIcon(self.windowIcon(), self)
         menu = QMenu(self)
         for name, callback in (("Restaurar", self.restore), ("Marcar travadinha", self.mark_stutter),
                                ("Encerrar gravação", lambda: self.send_command("stop")), ("Sair", QApplication.instance().quit)):
@@ -231,7 +255,7 @@ class App(QMainWindow):
             self.inspection.refresh_button.setEnabled(False)
         else:
             self.refresh_inventory()
-        self.show_page(3)
+        self.show_page(1)
         if demo:
             self.analyze_capture(str(Path(__file__).parent / "examples" / "sessao-demo"))
 
@@ -252,11 +276,14 @@ class App(QMainWindow):
         if self.advanced.recorder.active.is_set():
             self.advanced.recorder.command("inventory", snapshot)
         self.inspection.set_snapshot(snapshot)
+        self.on_activity()
         if self.recorder.active.is_set():
             if not self.recorder.command("inventory", snapshot):
                 self.inspection.status.setText("Inventário disponível na tela; fila cheia impediu anexar à captura.")
 
     def on_recording_status(self, status):
+        if status.get("completed") or status.get("error"):
+            self.activity.end_capture("native")
         if status.get("started") and self._inventory:
             self.on_inventory(self._inventory)
         if status.get("completed") and status.get("count") and not self._closed:
@@ -268,12 +295,14 @@ class App(QMainWindow):
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
-        for i, button in enumerate(self.nav_buttons):
-            button.setChecked(i == index)
-        if index == 0 and not self._hardware_loaded:
+        for button in self.nav_buttons:
+            button.setChecked(button.property("page") == index)
+        if index == 0 and not self._hardware_loaded and not self.activity.capture:
             self._hardware_loaded = True
             threading.Thread(target=self.load_hardware, name="sys-pulse-hardware", daemon=True).start()
         self._last_paint = 0
+        if index == 3:
+            self._last_processes = None
 
     def load_hardware(self):
         try:
@@ -286,13 +315,71 @@ class App(QMainWindow):
 
     def send_command(self, kind, payload=None):
         if kind == "start":
-            payload = {**payload, "inventory": self._inventory}
-            self.refresh_inventory()
+            if self.demo:
+                return
+            if self._inventory is None:
+                self.diagnostic.set_status({"active": False, "message": "Preparando o inventário inicial. Aguarde a conclusão antes de capturar."})
+                self.on_activity()
+                return
+            payload = {**(payload or {}), "inventory": self._inventory}
+            self._capture_mode = payload.get("mode", "light")
+            try:
+                if self._capture_mode in ("circular", "detail"):
+                    self.activity.begin_capture("advanced")
+                    self.advanced.session_options = payload
+                    self.advanced.start_capture(payload["folder"],
+                                                payload.get("duration_s", 1800) if self._capture_mode == "circular" else 180,
+                                                self._capture_mode)
+                    return
+                self.activity.begin_capture("native")
+                self.worker_monitor.target_pid = payload.get("target_pid")
+            except (RuntimeError, ValueError, OSError) as error:
+                self.diagnostic.set_status({"active": False, "message": str(error)})
+                return
+        if kind == "stop" and self.activity.capture == "advanced":
+            self.advanced.stop_capture()
+            return
         if not self.recorder.command(kind, payload):
+            if kind == "start":
+                self.activity.end_capture("native")
             self.diagnostic.set_status({"active": self.recorder.active.is_set(), "path": str(self.recorder.path or ""),
                                         "message": "Gravador ocupado. Tente novamente; o comando não foi registrado.", "error": True})
 
+    def on_activity(self):
+        busy = self.activity.busy
+        self.diagnostic.start.setEnabled(not busy and not self.demo and self._inventory is not None)
+        self.hardware.refresh_button.setEnabled(not busy)
+        self.network.apply.setEnabled(not busy)
+        self.network.target.setEnabled(not busy)
+        self.inspection.refresh_button.setEnabled(not busy and not self.demo)
+        self.advanced.update_buttons()
+
+    def on_advanced_state(self, state):
+        if self._capture_mode not in ("circular", "detail"):
+            return
+        active = state.get("state") not in ("completed", "failed", "cancelled")
+        self.diagnostic.set_status({"active": active, "message": state.get("message", ""),
+                                    "path": str(self.advanced.controller.path or "")})
+        self.on_activity()
+
+    def open_result(self, path):
+        if self._capture_mode in ("circular", "detail"):
+            self.show_page(6)
+        else:
+            self.analyze_capture(path)
+
+    def reload_hardware(self):
+        if not self.activity.capture:
+            self.hardware.refresh_button.setEnabled(False)
+            threading.Thread(target=self.load_hardware, name="sys-pulse-hardware", daemon=True).start()
+
+    def change_ping_target(self, target):
+        if not self.demo and not self.activity.capture:
+            self.worker_monitor.sensors.ping_target = target
+
+
     def mark_stutter(self):
+        self.advanced.note.setText(self.diagnostic.note.text())
         self.advanced.mark()
         now = time.monotonic()
         if not self.recorder.active.is_set() or now - self._last_marker < 0.5:
@@ -312,6 +399,7 @@ class App(QMainWindow):
         self.statusBar().showMessage(message)
         if sample is not self._last_sample:
             self.diagnostic.chart.add(sample)
+            self.dashboard.add_history(sample)
             self._last_sample = sample
         if not self.isVisible() or self.isMinimized() or time.monotonic() - self._last_paint < 0.5:
             return
@@ -319,6 +407,9 @@ class App(QMainWindow):
         page = self.pages.currentIndex()
         if page == 3:
             self.diagnostic.update_sample(sample)
+            if sample["processes"] is not self._last_processes and not self.activity.capture:
+                self.diagnostic.update_processes(sample["processes"])
+                self._last_processes = sample["processes"]
         elif page == 1:
             self.update_resources(sample)
             if sample["processes"] is not self._last_processes:
@@ -328,40 +419,10 @@ class App(QMainWindow):
             self.update_network(sample)
 
     def update_resources(self, sample):
-        self.uptime.setText(f"Tempo desde o boot: {sample['uptime']}")
-        for key, field in (("CPU", "cpu_percent"), ("RAM", "ram_percent")):
-            self.resource_labels[key].setText(f"{key}: {fmt(sample[field], '%')}")
-            self.bars[key].setValue(round(sample[field]))
-        lines = [f"Núcleo mais ocupado: {fmt(sample['cpu_max_core'], '%')}",
-                 f"RAM disponível: {fmt(sample['ram_available_gb'], ' GiB')}", "", "GPUs"]
-        for gpu in sample.get("gpus", []):
-            lines.append(f"{gpu['name']}: {fmt(gpu.get('percent'), '%')} | {fmt(gpu.get('temperature'), ' °C')} | "
-                         f"VRAM {fmt(gpu.get('memory_used_mb'), '', 0)}/{fmt(gpu.get('memory_total_mb'), ' MiB', 0)}")
-        if not sample.get("gpus"):
-            lines.append("N/D — NVIDIA usa NVML; AMD/Intel podem fornecer sensores via LibreHardwareMonitor.")
-        lines += ["", "ATIVIDADE DOS DISCOS"]
-        for disk in sample["disks"]:
-            lines.append(f"{disk['name']}: leitura {fmt(disk['read_mbs'], ' MiB/s')} | escrita {fmt(disk['write_mbs'], ' MiB/s')} | "
-                         f"atividade {fmt(disk['active_percent'], '%')} | latência R/W {fmt(disk['read_ms'])}/{fmt(disk['write_ms'])} ms/op | "
-                         f"fila {fmt(disk.get('queue'))} | IOPS R/W {fmt(disk.get('read_iops'))}/{fmt(disk.get('write_iops'))}")
-        lines += ["", "ESPAÇO DAS PARTIÇÕES (atualização a cada 30 s)"]
-        for disk in sample["storage_percent"]:
-            lines.append(f"{disk['disco']}: {fmt(disk['percent'], '%')} ocupado | livre {fmt(disk['free'], ' GiB')} / {fmt(disk['total'], ' GiB')}")
-        self.resource_text.setPlainText("\n".join(lines))
+        self.dashboard.update_sample(sample)
 
     def update_network(self, sample):
-        network = sample["network"]
-        ping = sample.get("ping")
-        ping_text = ("<" if ping.get("less_than") else "") + fmt(ping.get("ms"), " ms") if ping else "N/D — timeout ou ICMP indisponível"
-        lines = ["REDE", "", f"Download: {fmt(network.get('download_mbs'), ' MiB/s', 2)}",
-                 f"Upload: {fmt(network.get('upload_mbs'), ' MiB/s', 2)}",
-                 f"Total recebido: {fmt(network.get('total_down_mb'), ' MiB')}",
-                 f"Total enviado: {fmt(network.get('total_up_mb'), ' MiB')}",
-                 f"Ping 8.8.8.8 (aprox. 5 s): {ping_text}", "", "INTERFACES ATIVAS"]
-        lines += [f"{item['name']} | {item['ip']} | {item['speed_mbps']} Mbps" for item in sample.get("net_info", [])]
-        lines += ["", "Tráfego agregado das interfaces. VPNs/adaptadores virtuais podem duplicar contagem.",
-                  "Ping não mede FPS nem a latência específica do jogo."]
-        self.network.setPlainText("\n".join(lines))
+        self.network.update_sample(sample)
 
     def restore(self):
         self.showNormal()
@@ -380,6 +441,7 @@ class App(QMainWindow):
         if self._closed:
             return
         self._closed = True
+        self.settings_panel.shutdown()
         self.timer.stop()
         self.hotkey.close()
         self.worker_monitor.stop()

@@ -1,3 +1,4 @@
+import os
 from collections import deque
 from pathlib import Path
 
@@ -5,9 +6,10 @@ from PySide6.QtCore import Qt, Signal, QPointF, QStandardPaths
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QPushButton, QComboBox, QCheckBox, QLineEdit, QFileDialog, QPlainTextEdit, QTabWidget)
+    QPushButton, QComboBox, QCheckBox, QLineEdit, QFileDialog, QPlainTextEdit, QTabWidget, QGroupBox)
 
 from modules.diagnostics import metrics
+from modules.frametimes import find_presentmon
 
 
 def fmt(value, suffix="", digits=1):
@@ -26,7 +28,8 @@ class HistoryChart(QWidget):
 
     def add(self, sample):
         self.points.append((sample["monotonic"], metrics(sample)))
-        self.update()
+        if self.isVisible():
+            self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -81,62 +84,125 @@ class DiagnosticPanel(QWidget):
     interval_changed = Signal(float)
     lhm_changed = Signal(bool)
     analyze_requested = Signal(str)
+    configure_ai = Signal()
+    advanced_requested = Signal()
 
     def __init__(self):
         super().__init__()
         self.session_path = None
         layout = QVBoxLayout(self)
-        title = QLabel("Captura de performance")
+        title = QLabel("Investigue o que está lento")
         title.setObjectName("title")
         layout.addWidget(title)
-        intro = QLabel("Inicie a gravação, use o PC e marque a travadinha com Ctrl + Alt + F8.\n"
-                       "Aguarde pelo menos 5 segundos após a última marcação antes de encerrar.")
+        intro = QLabel("Escolha a tarefa, inicie e use o computador. Marque quando perceber o problema.\n"
+                       "A análise reúne as evidências ao encerrar; a IA só trabalha depois da captura.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        options = QHBoxLayout()
-        self.interval = QComboBox()
-        for label, value in (("250 ms", 0.25), ("500 ms", 0.5), ("1 segundo", 1.0)):
-            self.interval.addItem(label, value)
-        self.interval.setCurrentIndex(1)
-        self.interval.currentIndexChanged.connect(lambda: self.interval_changed.emit(self.interval.currentData()))
-        options.addWidget(QLabel("Coleta:"))
-        options.addWidget(self.interval)
-        self.lhm = QCheckBox("Ler LibreHardwareMonitor (local:8085)")
-        self.lhm.setToolTip("Opcional: abra o LibreHardwareMonitor e ative Options > Remote Web Server > Run na porta 8085.")
-        self.lhm.toggled.connect(self.lhm_changed.emit)
-        options.addWidget(self.lhm)
-        options.addStretch()
-        layout.addLayout(options)
-        destination = QHBoxLayout()
-        base = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation) or str(Path.home())
-        self.folder = QLineEdit(str(Path(base) / "SysPulse" / "diagnosticos"))
-        self.folder.setReadOnly(True)
-        self.choose = QPushButton("Pasta…")
-        self.choose.clicked.connect(self.choose_folder)
-        destination.addWidget(self.folder)
-        destination.addWidget(self.choose)
-        layout.addLayout(destination)
+        setup = QGridLayout()
+        self.symptom = QComboBox()
+        for label, value in (("Computador lento", "system"), ("Programa demora", "application"),
+                             ("Imagem engasga / FPS cai", "graphics"), ("Áudio corta", "audio"),
+                             ("Conexão ruim", "network")):
+            self.symptom.addItem(label, value)
+        self.mode = QComboBox()
+        self.mode.addItem("Leve · acompanhe a sessão inteira", "light")
+        if os.name == "nt":
+            self.mode.addItem("Detalhada · aguarde o próximo sintoma", "circular")
+            self.mode.addItem("Detalhada · reprodução curta (até 3 min)", "detail")
+        self.duration = QComboBox()
+        for minutes in (15, 30, 60, 120):
+            self.duration.addItem(f"{minutes} minutos", minutes * 60)
+        self.duration.setCurrentIndex(1)
+        self.target = QComboBox()
+        self.target.addItem("Sistema inteiro", None)
+        setup.addWidget(QLabel("O que está acontecendo?"), 0, 0)
+        setup.addWidget(QLabel("Como acompanhar?"), 0, 1)
+        setup.addWidget(self.symptom, 1, 0)
+        setup.addWidget(self.mode, 1, 1)
+        setup.addWidget(QLabel("Aplicativo"), 2, 0)
+        setup.addWidget(QLabel("Duração máxima"), 2, 1)
+        setup.addWidget(self.target, 3, 0)
+        setup.addWidget(self.duration, 3, 1)
+        layout.addLayout(setup)
+        self.budget = QLabel()
+        self.budget.setWordWrap(True)
+        self.budget.setObjectName("muted")
+        layout.addWidget(self.budget)
+        self.mode.currentIndexChanged.connect(self.update_budget)
+        self.duration.currentIndexChanged.connect(self.update_budget)
+        self.ai_button = QPushButton("IA opcional · escolher antes, analisar depois")
+        self.ai_button.setObjectName("secondary")
+        self.ai_button.clicked.connect(self.configure_ai.emit)
+        layout.addWidget(self.ai_button)
         controls = QHBoxLayout()
-        self.start = QPushButton("Iniciar gravação")
-        self.mark = QPushButton("Marcar travadinha")
-        self.stop = QPushButton("Encerrar gravação")
-        self.open = QPushButton("Pasta da sessão")
-        self.analyze = QPushButton("Analisar sessão")
-        self.analyze.clicked.connect(lambda: self.analyze_requested.emit(self.session_path) if self.session_path else None)
-        self.analyze.setEnabled(False)
+        self.start = QPushButton("Iniciar investigação")
+        self.start.setObjectName("primary")
+        self.mark = QPushButton("Marcar problema · Ctrl+Alt+F8")
+        self.stop = QPushButton("Encerrar e analisar")
         self.start.clicked.connect(self.request_start)
         self.mark.clicked.connect(self.mark_requested.emit)
         self.stop.clicked.connect(self.request_stop)
-        self.open.clicked.connect(self.open_session)
         self.mark.setEnabled(False)
         self.stop.setEnabled(False)
-        self.open.setEnabled(False)
-        for button in (self.start, self.mark, self.stop, self.analyze, self.open):
+        self.mark.hide()
+        self.stop.hide()
+        for button in (self.start, self.mark, self.stop):
             controls.addWidget(button)
         layout.addLayout(controls)
         self.note = QLineEdit()
-        self.note.setPlaceholderText("Observação opcional para a próxima marcação (ex.: YouTube, jogo, áudio cortou)")
+        self.note.setPlaceholderText("Observação opcional para a próxima marcação")
         layout.addWidget(self.note)
+        self.options = QGroupBox("Mais opções")
+        self.options.setCheckable(True)
+        self.options.setChecked(False)
+        advanced = QVBoxLayout(self.options)
+        self.options_body = QWidget()
+        body = QVBoxLayout(self.options_body)
+        options = QHBoxLayout()
+        self.interval = QComboBox()
+        for label, value in (("250 ms · mais detalhes", .25), ("500 ms · equilibrado", .5), ("1 s · menor custo", 1.0)):
+            self.interval.addItem(label, value)
+        self.interval.setCurrentIndex(1)
+        self.interval.currentIndexChanged.connect(lambda: self.interval_changed.emit(self.interval.currentData()))
+        self.lhm = QCheckBox("Sensores extras via LibreHardwareMonitor")
+        self.lhm.setToolTip("Ative o servidor local do LibreHardwareMonitor na porta 8085.")
+        self.lhm.toggled.connect(self.lhm_changed.emit)
+        self.frames = QCheckBox("Capturar frametimes do aplicativo com PresentMon")
+        self.frames.setEnabled(os.name == "nt")
+        self.symptom.currentIndexChanged.connect(lambda: self.frames.setChecked(os.name == "nt" and self.symptom.currentData() == "graphics"))
+        options.addWidget(self.interval)
+        options.addWidget(self.lhm)
+        body.addLayout(options)
+        body.addWidget(self.frames)
+        self.presentmon = QLineEdit()
+        self.presentmon.setPlaceholderText("Caminho opcional para PresentMon.exe")
+        body.addWidget(self.presentmon)
+        base = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation) or str(Path.home())
+        self.folder = QLineEdit(str(Path(base) / "SysPulse" / "diagnosticos"))
+        self.folder.setReadOnly(True)
+        destination = QHBoxLayout()
+        self.choose = QPushButton("Destino…")
+        self.choose.clicked.connect(self.choose_folder)
+        destination.addWidget(self.folder, 1)
+        destination.addWidget(self.choose)
+        body.addLayout(destination)
+        files = QHBoxLayout()
+        self.open = QPushButton("Pasta da sessão")
+        self.open.clicked.connect(self.open_session)
+        self.open.setEnabled(False)
+        self.analyze = QPushButton("Ver resultado")
+        self.analyze.clicked.connect(lambda: self.analyze_requested.emit(self.session_path) if self.session_path else None)
+        self.analyze.setEnabled(False)
+        detailed = QPushButton("Abrir ETL e detalhes técnicos")
+        detailed.clicked.connect(self.advanced_requested.emit)
+        for button in (self.analyze, self.open, detailed):
+            files.addWidget(button)
+        body.addLayout(files)
+        advanced.addWidget(self.options_body)
+        self.options_body.hide()
+        self.options.toggled.connect(self.options_body.setVisible)
+        layout.addWidget(self.options)
+        self.update_budget()
         self.status = QLabel("Monitorando • gravação desligada")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -164,14 +230,48 @@ class DiagnosticPanel(QWidget):
         self.details.addTab(self.events, "Marcações")
         layout.addWidget(self.details, 1)
 
+
+    def update_budget(self):
+        circular = self.mode.currentData() == "circular"
+        detail = self.mode.currentData() == "detail"
+        text = ("Detalhes recentes em memória · orçamento de 128 MiB. A marcação salva após 5 s e encerra. "
+                "O início da sessão pode já ter sido sobrescrito." if circular else
+                "WPR em arquivo · até 3 min e limite aproximado de 1 GiB. Requer administrador." if detail else
+                "Sessão compacta, até 2 h e 256 MiB antes da compressão. O tamanho depende das fontes.")
+        self.budget.setText(text)
+        self.duration.setEnabled(not detail)
+
+    def update_processes(self, rows):
+        if self.target.view().isVisible() or self.target.hasFocus():
+            return
+        selected = self.target.currentData()
+        self.target.blockSignals(True)
+        self.target.clear()
+        self.target.addItem("Sistema inteiro", None)
+        for row in sorted(rows, key=lambda item: (item.get("name", "").lower(), item["pid"])):
+            self.target.addItem(f"{row.get('name', '?')} · PID {row['pid']}", row["pid"])
+        index = self.target.findData(selected)
+        self.target.setCurrentIndex(max(0, index))
+        self.target.blockSignals(False)
+
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Pasta para os diagnósticos", self.folder.text())
         if folder:
             self.folder.setText(folder)
 
     def request_start(self):
+        if self.frames.isChecked() and self.target.currentData() is None:
+            self.status.setText("Selecione o aplicativo para medir seus quadros. Sistema inteiro continua disponível sem frametimes.")
+            return
+        if self.frames.isChecked() and not find_presentmon(self.presentmon.text().strip()):
+            self.status.setText("Informe o executável do PresentMon em Mais opções para medir os quadros.")
+            return
         self.start.setEnabled(False)
-        self.start_requested.emit({"folder": self.folder.text(), "interval_ms": self.interval.currentData() * 1000})
+        self.start_requested.emit({"folder": self.folder.text(), "interval_ms": self.interval.currentData() * 1000,
+                                   "compressed": True, "csv": False, "mode": self.mode.currentData(),
+                                   "duration_s": self.duration.currentData(), "symptom": self.symptom.currentData(),
+                                   "target_pid": self.target.currentData(), "frames": self.frames.isChecked(),
+                                   "presentmon": self.presentmon.text().strip()})
 
     def request_stop(self):
         self.stop.setEnabled(False)
@@ -184,6 +284,11 @@ class DiagnosticPanel(QWidget):
     def set_status(self, status):
         active = status["active"]
         self.start.setEnabled(not active)
+        self.start.setVisible(not active)
+        self.mark.setVisible(active)
+        self.stop.setVisible(active)
+        for widget in (self.mode, self.duration, self.target, self.symptom, self.ai_button):
+            widget.setEnabled(not active)
         self.mark.setEnabled(active)
         self.stop.setEnabled(active)
         self.interval.setEnabled(not active)

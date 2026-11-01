@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
 from modules.ai_summary import AISummaryPanel
 from modules.advanced_analysis import readable_report
 from modules.analysis import (analyze_session, save_report, report_text, ranked_processes,
-                              display_time, fmt, AnalysisCancelled)
+                              display_time, fmt, AnalysisCancelled, export_metrics)
 
 
 def table(headers):
@@ -106,10 +106,11 @@ class SessionChart(QWidget):
 
 class AnalysisPanel(QWidget):
     ready = Signal(int, object, str)
+    csv_exported = Signal(int, str)
     failed = Signal(int, str)
     cancelled = Signal(int)
 
-    def __init__(self):
+    def __init__(self, ai_config=None):
         super().__init__()
         self.result = None
         self._generation = 0
@@ -144,6 +145,10 @@ class AnalysisPanel(QWidget):
         self.cancel_button = QPushButton("Cancelar leitura")
         self.cancel_button.clicked.connect(self.cancel)
         self.cancel_button.hide()
+        self.csv_button = QPushButton("Exportar métricas CSV")
+        self.csv_button.clicked.connect(self.export_csv)
+        self.csv_button.setEnabled(False)
+        status_row.addWidget(self.csv_button)
         status_row.addWidget(self.cancel_button)
         layout.addLayout(status_row)
         self.cards = []
@@ -220,22 +225,33 @@ class AnalysisPanel(QWidget):
         self.tabs.addTab(triage, "Triagem")
         self.sensor_table = table(["Dispositivo / métrica", "Unidade", "Mínimo", "Média", "Máximo", "Leituras"])
         self.tabs.addTab(self.sensor_table, "Sensores e discos")
+        frames = QWidget()
+        frame_layout = QVBoxLayout(frames)
+        self.frame_note = QLabel("Ative PresentMon em Mais opções da investigação e selecione um aplicativo.")
+        self.frame_note.setWordWrap(True)
+        frame_layout.addWidget(self.frame_note)
+        self.frame_table = table(["PID", "Quadros", "Mediana (ms)", "P95 (ms)", "P99 (ms)", "Maior (ms)", "Intervalos longos"])
+        frame_layout.addWidget(self.frame_table)
+        self.frame_events = table(["Tempo na sessão", "Intervalo (ms)", "GPU ocupada (ms)", "CPU ocupada (ms)", "Contexto de recursos (±1 s)"])
+        frame_layout.addWidget(self.frame_events)
+        self.tabs.addTab(frames, "Quadros / frametime")
         self.report = QPlainTextEdit()
         self.report.setReadOnly(True)
         self.tabs.addTab(self.report, "Relatório e limites")
-        self.ai = AISummaryPanel()
+        self.ai = AISummaryPanel(ai_config)
         self.tabs.addTab(self.ai, "IA opcional")
         footer = QLabel("Médias das leituras disponíveis • CPU por processo normalizada pelo total de CPUs lógicas • N/D = dado indisponível")
         footer.setWordWrap(True)
         footer.setObjectName("muted")
         layout.addWidget(footer)
         self.ready.connect(self.accept_result)
+        self.csv_exported.connect(self.accept_csv)
         self.failed.connect(self.accept_error)
         self.cancelled.connect(self.accept_cancelled)
 
     def choose_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Abrir captura SysPulse", "",
-            "Captura SysPulse (*.zip *.jsonl *.json);;Todos os arquivos (*)")
+            "Captura SysPulse (*.zip *.jsonl *.jsonl.gz *.json);;Todos os arquivos (*)")
         if path:
             self.load(path)
 
@@ -301,6 +317,7 @@ class AnalysisPanel(QWidget):
         if generation != self._generation:
             return
         self.result = result
+        self.csv_button.setEnabled(True)
         self.set_busy(False)
         summary = result["summary"]
         name = Path(result["source"]).name
@@ -362,6 +379,25 @@ class AnalysisPanel(QWidget):
                                   for r in assessment.get("resources", [])])
         fill(self.sensor_table, [[r["name"], r["unit"], fmt(r["min"]), fmt(r["mean"]), fmt(r["max"]), r["count"]]
                                 for r in assessment.get("telemetry", [])])
+        frames = result.get("frametimes") or {}
+        series = frames.get("series", [])
+        self.frame_note.setText(frames.get("method", "Sem frametimes nesta sessão. Ative PresentMon e selecione um aplicativo na próxima captura."))
+        fill(self.frame_table, [[s["pid"], s["count"], fmt(s["median_ms"]), fmt(s["p95_ms"]), fmt(s["p99_ms"]),
+                                fmt(s["max_ms"]), s["long_intervals"]] for s in series])
+        events = []
+        if series:
+            for event in series[0]["events"]:
+                at = event.get("monotonic")
+                first = summary.get("start_monotonic")
+                context = event.get("resource_context") or {}
+                values = [f"{r['name']} {fmt(r.get('peak'), '%')}" for r in context.get("resources", [])
+                          if r.get("peak") is not None and r.get("high_count")]
+                note = ", ".join(values) or ("Sem carga alta no contexto amostrado" if context.get("samples") else "Sem contexto alinhado")
+                if context.get("collection", {}).get("gaps"):
+                    note += " · lacunas de coleta"
+                events.append([fmt(at - first, " s") if at is not None and first is not None and series[0]["alignment"].startswith("QPC") else "N/D",
+                               fmt(event["duration_ms"]), fmt(event.get("gpu_busy_ms")), fmt(event.get("cpu_busy_ms")), note])
+        fill(self.frame_events, events)
         self.report.setPlainText(report_text(result))
         self.explanation.setPlainText(readable_report(result, "ENTENDA O RESULTADO"))
         self.ai.set_result(result)
@@ -426,6 +462,31 @@ class AnalysisPanel(QWidget):
                 self.status.setText(f"Relatórios TXT e JSON exportados em {destination}")
             except OSError as error:
                 QMessageBox.warning(self, "Falha ao exportar", str(error))
+
+    def export_csv(self):
+        if not self.result:
+            return
+        target, _ = QFileDialog.getSaveFileName(self, "Exportar métricas", "metricas.csv", "CSV (*.csv)")
+        if not target:
+            return
+        self.csv_button.setEnabled(False)
+        source = self.result["source"]
+        generation = self._generation
+
+        def run():
+            try:
+                export_metrics(source, target)
+                self.csv_exported.emit(generation, f"Métricas exportadas: {Path(target).name}")
+            except Exception as error:
+                self.csv_exported.emit(generation, f"Não foi possível exportar: {error}")
+        thread = threading.Thread(target=run, name="sys-pulse-csv", daemon=True)
+        self._jobs.append(thread)
+        thread.start()
+
+    def accept_csv(self, generation, message):
+        if generation == self._generation:
+            self.csv_button.setEnabled(True)
+            self.status.setText(message)
 
     def shutdown(self):
         self.ai.shutdown()

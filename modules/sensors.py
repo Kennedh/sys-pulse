@@ -1,4 +1,5 @@
 import json
+from collections import deque
 import math
 import re
 import threading
@@ -70,6 +71,7 @@ class SensorService:
     def __init__(self, discos_ignorados=None):
         self.discos_ignorados = discos_ignorados or []
         self.lhm_enabled = False
+        self.ping_target = '8.8.8.8'
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._data = {}
@@ -154,7 +156,7 @@ class SensorService:
                 usage = psutil.disk_usage(partition.mountpoint)
                 rows.append({"disco": partition.device, "percent": usage.percent,
                              "total": usage.total / 1024 ** 3, "free": usage.free / 1024 ** 3})
-            except (OSError, psutil.Error):
+            except (OSError, psutil.Error, NotImplementedError):
                 continue
         return rows
 
@@ -163,6 +165,8 @@ class SensorService:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         last_network = last_ping = 0
         net_info, storage, ping, ping_at = [], [], None, None
+        history = deque(maxlen=120)
+        previous_target = self.ping_target
         try:
             while not self._stop.is_set():
                 started = time.monotonic()
@@ -176,7 +180,7 @@ class SensorService:
                               if group.lower() in ("coretemp", "k10temp", "cpu_thermal", "zenpower")
                               for entry in entries if entry.current is not None]
                     data["cpu_temperature"] = max(values, default=None)
-                except (OSError, psutil.Error):
+                except (OSError, psutil.Error, NotImplementedError):
                     pass
                 if self.lhm_enabled:
                     try:
@@ -198,14 +202,20 @@ class SensorService:
                     try:
                         net_info = NetworkMonitor.get_infrastructure_info()
                         storage = self._storage()
-                    except (OSError, psutil.Error):
+                    except (OSError, psutil.Error, NotImplementedError):
                         net_info = []
                     last_network = started
                 if started - last_ping >= 5:
-                    ping = NetworkMonitor.get_ping()
+                    target = self.ping_target
+                    if target != previous_target:
+                        history.clear()
+                        previous_target = target
+                    ping = NetworkMonitor.get_ping(target)
                     ping_at = time.monotonic()
+                    history.append({"at": ping_at, "ms": ping.get("ms") if ping else None})
                     last_ping = started
-                data.update(net_info=net_info, storage_percent=storage, ping=ping, ping_at=ping_at)
+                data.update(net_info=net_info, storage_percent=storage, ping=ping, ping_at=ping_at,
+                            ping_target=previous_target, ping_history=list(history))
                 with self._lock:
                     self._data = data
                 self._stop.wait(max(0.05, 1 - (time.monotonic() - started)))

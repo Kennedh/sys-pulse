@@ -19,12 +19,15 @@ from modules.diagnostics import SessionRecorder
 
 class AdvancedPanel(QWidget):
     recorder_status = Signal(dict)
+    capture_state = Signal(dict)
     ready = Signal(int, dict, str)
     failed = Signal(int, str)
 
-    def __init__(self, demo=False):
+    def __init__(self, demo=False, ai_config=None):
         super().__init__()
         self.demo = demo
+        self.ai_config = ai_config
+        self.session_options = {}
         self.controller = CaptureController()
         self.inventory = None
         self.result = None
@@ -93,10 +96,18 @@ class AdvancedPanel(QWidget):
         self.tabs.addTab(self.explanation, "Entenda o resultado")
         self.drivers = table(["Tipo", "Módulo", "Ocorrências", "Total (ms)", "Média (µs)", "Maior faixa (µs)"])
         self.tabs.addTab(self.drivers, "DPC / ISR")
+        self.cpu_table = table(["Processo", "PID", "Execução acumulada (ms)"])
+        self.tabs.addTab(self.cpu_table, "CPU")
+        self.thread_table = table(["Processo", "PID", "Thread", "Execução acumulada (ms)"])
+        self.tabs.addTab(self.thread_table, "Threads")
+        self.disk_table = table(["Arquivo", "Operações", "Leitura (MiB)", "Escrita (MiB)"])
+        self.tabs.addTab(self.disk_table, "Disco")
+        self.fault_table = table(["Processo", "PID", "Hard faults", "Dados (MiB)"])
+        self.tabs.addTab(self.fault_table, "Páginas")
         self.raw = QPlainTextEdit()
         self.raw.setReadOnly(True)
         self.tabs.addTab(self.raw, "Dados e limites")
-        self.ai = AISummaryPanel()
+        self.ai = AISummaryPanel(ai_config)
         self.tabs.addTab(self.ai, "IA opcional")
         self.ready.connect(self.accept_result)
         self.failed.connect(self.accept_error)
@@ -113,9 +124,10 @@ class AdvancedPanel(QWidget):
         active = self.controller.path is not None and state not in TERMINAL
         finishing = self.native_requested and not self.native_finished
         tools = find_tools()
-        self.start_button.setEnabled(not self.demo and not active and not finishing and not self._busy)
+        other_busy = self.ai_config and (self.ai_config.activity.inference or self.ai_config.activity.maintenance or self.ai_config.activity.capture == "native")
+        self.start_button.setEnabled(not self.demo and not active and not finishing and not self._busy and not other_busy)
         self.duration.setEnabled(not active and not self._busy)
-        self.open_button.setEnabled(not active and not finishing and not self._busy)
+        self.open_button.setEnabled(not active and not finishing and not self._busy and not other_busy)
         self.stop_button.setEnabled(active and state not in ("stopping",))
         self.mark_button.setEnabled(state == "recording")
         self.cancel_button.setVisible(self._busy)
@@ -125,21 +137,27 @@ class AdvancedPanel(QWidget):
                            " · Análise ETL (Xperf): " + ("disponível" if tools["xperf"] else "instale o Windows Performance Toolkit") +
                            " · Duração DPC/ISR não é latência completa do computador.")
 
-    def start_capture(self):
+    def start_capture(self, folder=None, seconds=None, mode="detail"):
         if self.demo:
             return
-        folder = QFileDialog.getExistingDirectory(self, "Pasta para guardar a captura avançada")
+        if not isinstance(folder, (str, Path)):
+            folder = QFileDialog.getExistingDirectory(self, "Pasta para guardar a captura avançada")
         if not folder:
             return
         try:
-            self.controller.start(folder, self.duration.currentData())
+            if self.ai_config and self.ai_config.activity.capture != "advanced":
+                self.ai_config.activity.begin_capture("advanced")
+            self.controller.start(folder, seconds or self.duration.currentData(), mode)
             self.native_requested = self.handled = False
             self.native_finished = self.native_stop_requested = False
             self.native_path = self.pending_etl = self.native_error = None
             self.status.setText("Solicitando permissão de administrador ao Windows…")
             self.update_buttons()
         except (OSError, ValueError, RuntimeError) as error:
+            if self.ai_config:
+                self.ai_config.activity.end_capture("advanced")
             self.status.setText(str(error))
+            self.capture_state.emit({"state": "failed", "message": str(error)})
 
     def stop_capture(self):
         try:
@@ -180,6 +198,8 @@ class AdvancedPanel(QWidget):
             self.native_error = status["message"]
         if status.get("completed") or status.get("error"):
             self.native_finished = True
+            if self.ai_config and self.controller.status().get("state") in TERMINAL:
+                self.ai_config.activity.end_capture("advanced")
         if (status.get("completed") or status.get("error")) and self.pending_etl:
             source, self.pending_etl = self.pending_etl, None
             self.load(source, self.controller.path / "analise", self.native_path)
@@ -189,9 +209,10 @@ class AdvancedPanel(QWidget):
         if not self.controller.path or self.handled:
             return
         state = self.controller.status()
+        self.capture_state.emit(state)
         self.status.setText(state.get("message", ""))
         if state.get("state") == "recording" and not self.native_requested:
-            self.native_requested = self.recorder.command("start", {"folder": str(self.controller.path / "recursos"),
+            self.native_requested = self.recorder.command("start", {**self.session_options, "folder": str(self.controller.path / "recursos"),
                                                                    "inventory": self.inventory})
         if state.get("state") in TERMINAL | {"stopping"}:
             if self.native_requested and not self.native_finished and not self.native_stop_requested:
@@ -202,6 +223,8 @@ class AdvancedPanel(QWidget):
                     return
         if state.get("state") in TERMINAL:
             self.handled = True
+            if self.ai_config and (not self.native_requested or self.native_finished):
+                self.ai_config.activity.end_capture("advanced")
             if state["state"] == "completed":
                 source = self.controller.path / "captura.etl"
                 if self.native_requested and not self.native_finished:
@@ -235,7 +258,7 @@ class AdvancedPanel(QWidget):
                 root = Path(source).resolve().parent
                 context = read_json(root / "context.json")
                 candidate = (root / context["resource_path"]).resolve()
-                if root in candidate.parents and (candidate / "amostras.jsonl").is_file():
+                if root in candidate.parents and any((candidate / name).is_file() for name in ("amostras.jsonl", "amostras.jsonl.gz")):
                     native_path = candidate
             except (OSError, ValueError, KeyError, TypeError):
                 pass
@@ -251,7 +274,7 @@ class AdvancedPanel(QWidget):
                         native_warning = f"Análise de recursos indisponível: {error}"
                 if cancel.is_set():
                     raise AdvancedCancelled()
-                result = analyze_etl(source, destination, cancel.is_set, native)
+                result = analyze_etl(source, destination, cancel.is_set, native, deep=True)
                 if native_warning:
                     result["explanation"]["limitations"].append(native_warning)
                     write_json(Path(destination) / "analise-avancada.json", result)
@@ -287,9 +310,14 @@ class AdvancedPanel(QWidget):
             rows.append([row["kind"], row["module"], row.get("count") if row.get("count") is not None else "N/D",
                          fmt(row["total_us"] / 1000 if row["total_us"] is not None else None, digits=3), fmt(row.get("mean_us"), digits=3), bucket])
         fill(self.drivers, rows)
+        fill(self.cpu_table, [[r["name"], r["pid"], fmt(r["cpu_us"] / 1000)] for r in result.get("cpu", {}).get("processes", [])[:100]])
+        fill(self.thread_table, [[r["name"], r["pid"], r["tid"], fmt(r["cpu_us"] / 1000)] for r in result.get("cpu", {}).get("threads", [])[:200]])
+        fill(self.disk_table, [[r["file"], r["count"], fmt(r["read_bytes"] / 1024 ** 2), fmt(r["write_bytes"] / 1024 ** 2)]
+                              for r in result.get("disk", {}).get("files", [])[:100]])
+        fill(self.fault_table, [[r["name"], r["pid"], r["count"], fmt(r["bytes"] / 1024 ** 2)] for r in result.get("faults", {}).get("processes", [])[:100]])
         text = [result["method"], "", *result["explanation"]["limitations"]]
         if destination:
-            for name in ("dpc-isr.txt", "trace-stats.txt"):
+            for name in ("dpc-isr.txt", "trace-stats.txt", "cpu-threads.txt", "disco.txt", "paginas.txt"):
                 try:
                     text += ["", name, read_text(Path(destination) / name)[:200000]]
                 except (OSError, ValueError):

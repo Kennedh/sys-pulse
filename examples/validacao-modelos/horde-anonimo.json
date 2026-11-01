@@ -1,0 +1,13 @@
+{
+  "synthetic_input": true,
+  "anonymous": true,
+  "text": "{\"findings\":[{\"category\":\"cpu\",\"evidence_ids\":[\"E1\"]}],\"conclusion\":\"hypotheses\"}",
+  "usage": {
+    "input_tokens": null,
+    "output_tokens": null
+  },
+  "model": "koboldcpp/gemma-4-31B-it-heretic",
+  "validated_text": "PRIORIZAÇÃO COMPLEMENTAR · IA\n\nProcessamento · hipótese para testar\nE1 · CPU total · média: 80 % | pico: 98 % | P95: 96 %\nPróximo teste: Repita a tarefa e compare o processo alvo, a carga por núcleo e as marcações.\n\nAs unidades e os valores acima vêm da análise local; a IA apenas priorizou hipóteses.\nCausa não confirmada. Confira cobertura, lacunas e a repetição do sintoma.",
+  "accepted": true,
+  "elapsed_s": 13.521
+}

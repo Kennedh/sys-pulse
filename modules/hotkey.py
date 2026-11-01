@@ -7,12 +7,15 @@ from PySide6.QtCore import QAbstractNativeEventFilter
 class GlobalHotkey(QAbstractNativeEventFilter):
     identifier = 0x5350
 
-    def __init__(self, application, callback):
+    def __init__(self, application, callback, enabled=True):
         super().__init__()
         self.application = application
         self.callback = callback
         self.registered = False
         self.error = "Atalho global disponível apenas no Windows; use o botão ou o atalho com a janela em foco."
+        if not enabled:
+            self.error = "Atalho desativado na demonstração."
+            return
         if os.name == "nt":
             from ctypes import wintypes
             self.user32 = ctypes.WinDLL("user32", use_last_error=True)

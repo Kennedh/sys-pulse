@@ -1,13 +1,18 @@
 import csv
+import gzip
 import json
 import platform
 import queue
+import shutil
 import threading
 import time
 from collections import deque
 from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
+
+from modules.frametimes import FrameCapture
+from modules.version import VERSION
 
 
 CSV_FIELDS = ["timestamp", "cpu_percent", "cpu_max_core", "ram_percent", "ram_available_gb",
@@ -82,6 +87,7 @@ class SessionRecorder:
         self.dropped = 0
         self.path = None
         self.files = None
+        self.frames = None
         self.thread = threading.Thread(target=self._run, name="sys-pulse-recorder", daemon=True)
         self.thread.start()
 
@@ -113,22 +119,33 @@ class SessionRecorder:
             return
         root = Path(options["folder"]).expanduser()
         root.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(root).free < 128 * 1024 ** 2:
+            raise OSError("Separe pelo menos 128 MiB livres para a investigação.")
+        self.space_checked = time.monotonic()
         self.path = root / datetime.now().strftime("sessao-%Y%m%d-%H%M%S-%f")
         self.path.mkdir()
         self.files = ExitStack()
-        self.raw = self.files.enter_context((self.path / "amostras.jsonl").open("w", encoding="utf-8"))
-        self.flat = self.files.enter_context((self.path / "metricas.csv").open("w", encoding="utf-8-sig", newline=""))
+        compressed = options.get("compressed", False)
+        self.raw = self.files.enter_context(
+            gzip.open(self.path / "amostras.jsonl.gz", "wt", encoding="utf-8", compresslevel=1)
+            if compressed else (self.path / "amostras.jsonl").open("w", encoding="utf-8"))
+        self.flat = self.files.enter_context((self.path / "metricas.csv").open("w", encoding="utf-8-sig", newline="")) if options.get("csv", True) else None
+        self.duration_s = max(30, min(7200, int(options.get("duration_s", 7200))))
+        self.options = options
         self.marks = self.files.enter_context((self.path / "marcacoes.csv").open("w", encoding="utf-8-sig", newline=""))
         self.events = self.files.enter_context((self.path / "eventos.jsonl").open("w", encoding="utf-8"))
         self.report = self.files.enter_context((self.path / "relatorio.txt").open("w", encoding="utf-8"))
-        self.csv = csv.DictWriter(self.flat, fieldnames=CSV_FIELDS)
-        self.csv.writeheader()
+        self.csv = csv.DictWriter(self.flat, fieldnames=CSV_FIELDS) if self.flat else None
+        if self.csv:
+            self.csv.writeheader()
         self.marker_csv = csv.DictWriter(self.marks, fieldnames=["id", "timestamp", "monotonic", "note"])
         self.marker_csv.writeheader()
-        metadata = {"schema_version": 2, "app_version": "2.2.0", "started": datetime.now().astimezone().isoformat(),
+        metadata = {"schema_version": 3, "app_version": VERSION, "started": datetime.now().astimezone().isoformat(),
                     "system": platform.platform(), "python": platform.python_version(),
                     "interval_ms": options.get("interval_ms", 500), "window_seconds": 5,
-                    "max_raw_bytes": self.max_bytes, "max_hours": 2}
+                    "max_raw_bytes": self.max_bytes, "max_hours": self.duration_s / 3600,
+                    "compressed": compressed, "duration_s": self.duration_s,
+                    "symptom": str(options.get("symptom", ""))[:120], "target_pid": options.get("target_pid")}
         self.metadata = metadata
         self._inventory(options.get("inventory"))
         (self.path / "sessao.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -139,12 +156,21 @@ class SessionRecorder:
                           "Temperatura é registrada sem presumir um limite universal.\n"
                           "Cada marcação compara até 5 s antes e depois. Ausência de dados não equivale a zero.\n"
                           "CPU por processo é normalizada pelo total de CPUs lógicas e atualizada a cada 2 s.\n"
-                          "Não mede FPS, frametime, latência DPC/ISR ou integridade da fonte/RAM.\n\n")
+                          "Frametimes dependem do PresentMon opcional; não mede latência DPC/ISR ou integridade da fonte/RAM.\n\n")
         self.history = deque(maxlen=160)
         self.pending = []
         self.count = self.event_count = self.raw_bytes = self.dropped = 0
         self.started = self.flushed = time.monotonic()
         self.peaks = {}
+        if options.get("frames"):
+            self.frames = FrameCapture()
+            try:
+                self.frames.start(self.path, options.get("target_pid"), options.get("presentmon", ""),
+                                  self.duration_s)
+            except (ValueError, OSError) as error:
+                self.frames = None
+                self.metadata["frame_error"] = str(error)
+                (self.path / "sessao.json").write_text(json.dumps(self.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         self.active.set()
         self._notify("Gravação iniciada", count=0, started=True)
 
@@ -158,18 +184,22 @@ class SessionRecorder:
 
     def _sample(self, sample):
         sample = dict(sample)
+        sample.pop("ping_history", None)
         processes = sample.get("processes", [])
         selected = []
         for field in ("cpu_percent", "ram_percent", "io_total_mbs", "gpu_percent"):
             selected += sorted((p for p in processes if p.get(field) is not None),
                                key=lambda p: p[field], reverse=True)[:10]
+        target_pid = self.options.get("target_pid")
+        selected += [p for p in processes if p.get("pid") == target_pid]
         sample["processes"] = list({(p["pid"], p["name"], p.get("created")): p for p in selected}.values())
         sample["process_selection"] = "top 10 CPU + RAM + I/O + GPU; CPU normalizada; intervalo mínimo de 2 s; varredura em segundo plano"
         line = json.dumps(sample, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
         self.raw.write(line)
         self.raw_bytes += len(line.encode("utf-8"))
         row = metrics(sample)
-        self.csv.writerow(row)
+        if self.csv:
+            self.csv.writerow(row)
         for key, value in row.items():
             if key != "timestamp" and value is not None:
                 self.peaks[key] = max(value, self.peaks.get(key, value))
@@ -187,9 +217,25 @@ class SessionRecorder:
         if now - self.flushed >= 2:
             self._flush()
             self.flushed = now
-            self._notify(f"Gravando: {self.count} amostras · {self.event_count} marcações", count=self.count)
-        if self.raw_bytes >= self.max_bytes or now - self.started >= 7200:
-            self._stop("Limite de sessão atingido (256 MiB de amostras ou 2 horas)")
+            elapsed = int(now - self.started)
+            raw_path = self.path / ("amostras.jsonl.gz" if self.options.get("compressed") else "amostras.jsonl")
+            size_mib = raw_path.stat().st_size / 1024 ** 2
+            self._notify(f"Gravando · {elapsed // 60:02d}:{elapsed % 60:02d} / {self.duration_s // 60} min · "
+                         f"{size_mib:.2f} MiB · {self.count} amostras · {self.event_count} marcações", count=self.count)
+        if now - self.space_checked >= 10:
+            self.space_checked = now
+            if self.frames and self.frames.path and self.frames.path.is_file() and self.frames.path.stat().st_size > 256 * 1024 ** 2:
+                try:
+                    self.frames.stop()
+                except OSError:
+                    pass
+                self.frames = None
+                self.metadata["frame_error"] = "Frametimes interrompidos no limite aproximado de 256 MiB; recursos continuaram sendo gravados."
+            if shutil.disk_usage(self.path).free < 64 * 1024 ** 2:
+                self._stop("Pouco espaço livre; gravação encerrada para preservar os dados.")
+                return
+        if self.raw_bytes >= self.max_bytes or now - self.started >= self.duration_s:
+            self._stop("Limite de sessão atingido (volume de amostras ou duração escolhida)")
 
     def _mark(self, event):
         self.event_count += 1
@@ -223,10 +269,21 @@ class SessionRecorder:
 
     def _flush(self):
         for file in (self.raw, self.flat, self.marks, self.events, self.report):
-            file.flush()
+            if file:
+                file.flush()
 
     def _stop(self, reason="Gravação concluída"):
         self.active.clear()
+        if self.frames:
+            try:
+                code = self.frames.stop()
+                if code:
+                    self.metadata["frame_error"] = f"PresentMon retornou {code}; confira presentmon.log."
+                elif not self.frames.path or not self.frames.path.is_file() or not self.frames.path.stat().st_size:
+                    self.metadata["frame_error"] = "PresentMon não gerou frametimes; confira o aplicativo selecionado, o suporte e presentmon.log."
+            except OSError as error:
+                self.metadata["frame_error"] = f"Frametimes preservados sem finalização completa: {error}"
+            self.frames = None
         if not self.files:
             return
         for pending in self.pending:
@@ -263,6 +320,12 @@ class SessionRecorder:
                     return
             except Exception as error:
                 self.active.clear()
+                if self.frames:
+                    try:
+                        self.frames.stop()
+                    except OSError:
+                        pass
+                    self.frames = None
                 if self.files:
                     try:
                         self.files.close()

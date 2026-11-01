@@ -7,9 +7,10 @@ import time
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
 
-from modules.advanced_capture import find_tools, write_json
+from modules.advanced_capture import find_tools, write_json, read_json
 from modules.inspection import driver_rows
 from modules.incidents import symptom_evidence
+from modules.etl_details import parse_cpu_report, parse_disk_report, parse_fault_report
 
 
 class AdvancedCancelled(Exception):
@@ -140,6 +141,16 @@ def explain_capture(result, native=None):
     symptoms = native.get("symptoms", {}) if native else {}
     for item in symptom_evidence(symptoms):
         evidence.append({"id": f"E{len(evidence) + 1}", **item})
+    frame_data = native.get("frametimes") or {} if native else {}
+    for series in frame_data.get("series", [])[:3]:
+        evidence.append({"id": f"E{len(evidence) + 1}",
+                         "title": f"Intervalos de quadros · PID {series['pid']}",
+                         "observed": f"{series['count']} quadros · mediana {series['median_ms']:.2f} ms · "
+                                     f"P99 {series['p99_ms']:.2f} ms · maior {series['max_ms']:.2f} ms. "
+                                     f"{series['long_intervals']} intervalos atingiram o critério de {series['long_threshold_ms']:.1f} ms.",
+                         "meaning": "São intervalos da mesma cadeia de apresentação. Limitador, minimização e tarefa podem explicar intervalos longos; "
+                                    "o resultado não atribui causa automaticamente.",
+                         "next_test": "Compare o horário dos maiores intervalos com as marcações e os recursos da sessão; repita a mesma tarefa com uma variável alterada."})
     drivers = result.get("drivers", [])
     quality = result.get("quality", {})
     if "drivers" in result and quality.get("lost_events"):
@@ -166,6 +177,20 @@ def explain_capture(result, native=None):
         evidence.append({"id": f"E{len(evidence) + 1}", "title": ("Sessão inteira · " if symptoms.get("marker_count") else "") + f"{driver['kind']} · {module}",
                          "observed": detail, "meaning": interpretation,
                          "next_test": "Repita a mesma tarefa com e sem o sintoma, mantendo a duração. Compare a atividade e investigue o módulo no WPA."})
+    cpu = result.get("cpu", {}).get("processes", [])
+    if cpu:
+        row = cpu[0]
+        evidence.append({"id": f"E{len(evidence) + 1}", "title": "CPU no ETL · execução acumulada",
+                         "observed": f"{row['name']} (PID {row['pid']}) acumulou {row['cpu_us'] / 1000:.1f} ms de execução no recorte.",
+                         "meaning": "O tempo soma execuções em diferentes CPUs. Liderar o acumulado não identifica a thread que atrasou o aplicativo.",
+                         "next_test": "Confira a tabela de threads e selecione no WPA o período do sintoma para distinguir execução, tempo pronto e espera."})
+    faults = result.get("faults", {}).get("processes", [])
+    if faults:
+        row = faults[0]
+        evidence.append({"id": f"E{len(evidence) + 1}", "title": "Memória no ETL · páginas não residentes",
+                         "observed": f"{row['name']} (PID {row['pid']}) teve {row['count']} hard faults, com {row['bytes'] / 1024 ** 2:.2f} MiB registrados.",
+                         "meaning": "São páginas que precisaram ser buscadas, inclusive de arquivos mapeados. Não representam falha física de RAM ou falta de memória comprovada.",
+                         "next_test": "Verifique no WPA se as faltas atingiram o aplicativo e coincidiram com a pausa; confira armazenamento e memória disponível."})
     if native:
         meanings = {
             "cpu": "A CPU chegou perto da capacidade total. Se isso coincidir com o sintoma, tarefas podem ter esperado por processamento.",
@@ -278,7 +303,7 @@ def run_tool(arguments, log_path, cancel, timeout=180):
             raise RuntimeError(f"Xperf retornou {process.returncode}. Consulte {Path(log_path).name}.")
 
 
-def analyze_etl(source, destination, cancel=lambda: False, native=None, xperf=None):
+def analyze_etl(source, destination, cancel=lambda: False, native=None, xperf=None, deep=False):
     source, destination = Path(source).resolve(), Path(destination).resolve()
     if source.suffix.lower() != ".etl" or not source.is_file():
         raise ValueError("Selecione um arquivo ETL existente.")
@@ -291,17 +316,42 @@ def analyze_etl(source, destination, cancel=lambda: False, native=None, xperf=No
     report_path, stats_path = destination / "dpc-isr.txt", destination / "trace-stats.txt"
     run_tool([executable, "-i", source, "-o", report_path, "-a", "dpcisr"], destination / "xperf-dpc.log", cancel)
     result = parse_dpc_report(read_text(report_path))
+    try:
+        capture_context = read_json(source.parent / "request.json")
+        if capture_context.get("mode") == "circular":
+            result["capture_mode"] = "circular"
+            result["warnings"].append("Modo circular: o ETL preserva eventos recentes; o início da sessão pode ter sido sobrescrito.")
+    except (OSError, ValueError):
+        pass
     if cancel():
         raise AdvancedCancelled()
     try:
         run_tool([executable, "-i", source, "-o", stats_path, "-a", "tracestats"], destination / "xperf-stats.log", cancel)
         result["quality"] = parse_trace_quality(read_text(stats_path))
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, ValueError, RuntimeError, csv.Error) as error:
         result["quality"] = {"lost_events": None, "checked": False}
         result["warnings"].append(f"Estatísticas do ETL indisponíveis: {error}")
-    result.update(schema_version=1, source=str(source), analyzed_at=datetime.now().astimezone().isoformat(),
+    if deep:
+        for key, filename, arguments, parser in (
+                ("cpu", "cpu-threads.txt", ["cswitch", "-process", "-thread", "-exc_dpcisr"], parse_cpu_report),
+                ("disk", "disco.txt", ["diskio", "-summary"], parse_disk_report),
+                ("faults", "paginas.txt", ["hardfault"], parse_fault_report)):
+            if cancel():
+                raise AdvancedCancelled()
+            try:
+                target = destination / filename
+                run_tool([executable, "-i", source, "-o", target, "-a", *arguments],
+                         destination / (key + ".log"), cancel)
+                result[key] = parser(read_text(target))
+                values = result[key].get("processes", result[key].get("files", []))
+                if not values:
+                    result["warnings"].append(f"Sem dados reconhecidos para {key}; confira fonte e relatório bruto.")
+            except (OSError, ValueError, RuntimeError, csv.Error) as error:
+                result["warnings"].append(f"Detalhes de {key} indisponíveis: {error}")
+    result.update(schema_version=2, source=str(source), analyzed_at=datetime.now().astimezone().isoformat(),
                   engine="Microsoft Xperf", native_summary=native.get("summary") if native else None,
-                  native_symptoms=native.get("symptoms") if native else None)
+                  native_symptoms=native.get("symptoms") if native else None,
+                  native_frametimes=native.get("frametimes") if native else None)
     result["explanation"] = explain_capture(result, native)
     if cancel():
         raise AdvancedCancelled()

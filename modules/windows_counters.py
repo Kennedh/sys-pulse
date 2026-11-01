@@ -47,6 +47,8 @@ class WindowsCounters:
                 self._add("gpu_processes", r"\GPU Engine(*)\Utilization Percentage")
             else:
                 self._add("page_reads_s", r"\Memory\Page Reads/sec")
+                self._add("commit_gb", r"\Memory\Committed Bytes")
+                self._add("commit_limit_gb", r"\Memory\Commit Limit")
                 self._add("idle", r"\PhysicalDisk(*)\% Idle Time")
                 self._add("queue", r"\PhysicalDisk(*)\Current Disk Queue Length")
             self.pdh.PdhCollectQueryData(self.query)
@@ -79,11 +81,11 @@ class WindowsCounters:
             if key == "gpu_processes":
                 result[key] = gpu_process_usage(self._array(handle))
                 continue
-            if key == "page_reads_s":
+            if key in ("page_reads_s", "commit_gb", "commit_limit_gb"):
                 value = CounterValue()
                 code = self.pdh.PdhGetFormattedCounterValue(handle, 0x200 | 0x8000, None, ctypes.byref(value))
                 if not code and value.status in (0, 1) and math.isfinite(value.value):
-                    result[key] = max(0, value.value)
+                    result[key] = max(0, value.value) / (1024 ** 3 if key.startswith("commit") else 1)
                 continue
             for name, value in self._array(handle):
                 number = (name or "").split(" ")[0]

@@ -1,0 +1,54 @@
+{
+  "model": "qwen3:0.6b",
+  "synthetic_inputs": true,
+  "system": "Windows",
+  "download_s": 12.752908599970397,
+  "model_disk_bytes": 522653767,
+  "download_statuses": [
+    "pulling 7f4030143c1c",
+    "pulling ae370d884f10",
+    "pulling b0830f4ff6a0",
+    "pulling cff3f395ef37",
+    "pulling d18a5cc71b84",
+    "pulling manifest",
+    "success",
+    "verifying sha256 digest",
+    "writing manifest"
+  ],
+  "cases": [
+    {
+      "case": "cpu",
+      "accepted": true,
+      "elapsed_s": 14.619,
+      "usage": {
+        "input_tokens": 286,
+        "output_tokens": 25
+      },
+      "raw": "{\"findings\":[{\"category\":\"cpu\",\"evidence_ids\":[\"E1\"]}], \"conclusion\":\"hypotheses\"}",
+      "validated_text": "PRIORIZAÇÃO COMPLEMENTAR · IA\n\nProcessamento · hipótese para testar\nE1 · CPU total · média: 80 % | pico: 98 % | P95: 96 %\nPróximo teste: Repita a tarefa e compare o processo alvo, a carga por núcleo e as marcações.\n\nAs unidades e os valores acima vêm da análise local; a IA apenas priorizou hipóteses.\nCausa não confirmada. Confira cobertura, lacunas e a repetição do sintoma."
+    },
+    {
+      "case": "storage",
+      "accepted": true,
+      "elapsed_s": 2.768,
+      "usage": {
+        "input_tokens": 289,
+        "output_tokens": 25
+      },
+      "raw": "{\"findings\":[{\"category\":\"storage\",\"evidence_ids\":[\"E1\"]}],\"conclusion\":\"hypotheses\"}",
+      "validated_text": "PRIORIZAÇÃO COMPLEMENTAR · IA\n\nArmazenamento · hipótese para testar\nE1 · read_latency · média: 40 ms/op | pico: 120 ms/op | P95: 90 ms/op\nPróximo teste: Compare latência e fila do mesmo disco no horário do sintoma; I/O por processo não identifica o disco.\n\nAs unidades e os valores acima vêm da análise local; a IA apenas priorizou hipóteses.\nCausa não confirmada. Confira cobertura, lacunas e a repetição do sintoma."
+    },
+    {
+      "case": "no_candidates",
+      "accepted": true,
+      "elapsed_s": 0.0,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0
+      },
+      "raw": "{\"findings\":[],\"conclusion\":\"insufficient_data\"}",
+      "validated_text": "PRIORIZAÇÃO COMPLEMENTAR · IA\n\nAs evidências enviadas não sustentaram uma prioridade adicional.\nIsso não descarta pausas curtas ou recursos sem medição.\n\nAs unidades e os valores acima vêm da análise local; a IA apenas priorizou hipóteses.\nCausa não confirmada. Confira cobertura, lacunas e a repetição do sintoma."
+    }
+  ],
+  "loaded_models_after": []
+}

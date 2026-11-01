@@ -1,5 +1,34 @@
 # Histórico de versões
 
+## 3.0.0 — 01/11/2026
+
+- Instaladores nativos e pacotes portáteis para Windows, Linux e macOS, com builds por arquitetura.
+- Windows com escolha de pasta, atalhos, análise inicial e desinstalação; modelos fora do instalador.
+- Configuração inicial e download opcional de modelos pelo aplicativo, com progresso e cancelamento.
+- Ollama detectado/reutilizado ou iniciado sem carregar modelo; servidores externos preservados.
+- IA anônima via AI Horde sem login ou chave pessoal, com fila limitada, cancelamento e validação das respostas.
+- APIs e conta Ollama mantidas como alternativas avançadas.
+- Download, preparação e inferência impedem novas capturas; escolha do modelo não inicia análise.
+- Testes reais documentados de Llama 3B, Qwen 0.6B e geração anônima com dados sintéticos.
+- Fluxo GitHub Actions para validar pacotes nos sistemas nativos e publicar os arquivos em Releases.
+- README e guia de instalação com armazenamento de modelos, consumo, testes e limites por sistema.
+
+## 2.3.0 — 01/11/2026
+
+- Navegação e cartões renovados; captura principal com Iniciar, Marcar e Encerrar, opções técnicas recolhidas.
+- Hardware e rede com informações adicionais, destino de ping configurável e dados indisponíveis explícitos.
+- Sessões de até duas horas, gzip rápido, exportação CSV sob demanda e limites de espaço.
+- Leitura agrupada de processos do Windows, com fallback e preservação do processo escolhido.
+- Captura circular WPR em memória para aguardar o sintoma; detalhes ETL de execução, arquivos e hard faults.
+- PresentMon opcional por processo, frametimes comprimidos, percentis e contexto de recursos por QPC.
+- Configuração compartilhada de Ollama/Llama, LM Studio, Gemini, OpenRouter, OpenAI e API compatível.
+- Inferência bloqueada durante capturas; Ollama solicitado a descarregar após a análise.
+- Resumo limitado, cache em memória, tokens informados e resposta validada por IDs de evidências.
+- Chave opcional no Gerenciador de Credenciais do Windows, sem texto simples nas preferências.
+- Pacote portátil Windows, inicializador, ícone e ferramentas de benchmark e validação gráfica.
+- Validação real nesta máquina: sessão de 30 minutos, janela visível, WPR/UAC/Xperf, PresentMon e Llama.
+- Prints, guia de uso, regressões e documentação de medidas e limites atualizados.
+
 ## Em desenvolvimento — revisão de travamentos
 
 - Explicação prioriza janelas de sintomas, comparando carga alta com o restante da sessão.

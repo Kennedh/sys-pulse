@@ -33,6 +33,7 @@ class FakeProcess:
 def test_new_process_and_reused_pid_require_cpu_baseline():
     worker = MonitorWorker()
     worker._cpu_count = 4
+    worker._native_times = None
     process = FakeProcess()
     with patch('modules.monitor.psutil.process_iter', return_value=[process]):
         assert worker._processes()[0]['cpu_percent'] is None

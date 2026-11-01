@@ -53,10 +53,10 @@ def test_advanced_stops_resources_before_etl_analysis(tmp_path, finish_resources
     def tool(arguments, log, cancel):
         calls.append(arguments)
         output = Path(arguments[arguments.index('-o') + 1])
-        fixture = Path(__file__).parent / 'fixtures/dpc-isr-simulado.txt'
+        fixture = Path(__file__).resolve().parents[1] / "examples/sessao-demo/dpc-isr-simulado.txt"
         output.write_text(fixture.read_text() if arguments[-1] == 'dpcisr' else 'Events Lost: 0')
 
-    def analyze(source, destination, cancel, native):
+    def analyze(source, destination, cancel, native, **options):
         assert panel.native_finished
         assert not panel.recorder.active.is_set()
         assert native['summary']['samples'] == 2

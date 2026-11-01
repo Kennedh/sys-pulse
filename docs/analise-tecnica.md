@@ -1,5 +1,7 @@
 # SysPulse 2.1 — análise técnica e mudanças
 
+> Registro anterior à implementação 2.3. Consulte o [guia atual](../README.md) e a [validação 2.3](validacao-2.3.md) para recursos e testes desta entrega.
+
 > Histórico técnico da versão 2.1. As adições de ETL, elevação e explicação da versão 2.2 estão em [análise avançada](analise-avancada.md). Os limites da tabela abaixo descrevem a 2.1.
 
 Referências consultadas em 28/10/2026. A comparação usa capacidades descritas pelos fabricantes e documentação das APIs, sem ranking comercial, benchmark entre produtos ou alegação de equivalência.

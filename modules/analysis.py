@@ -1,5 +1,6 @@
 import bisect
 import csv
+import gzip
 import io
 import json
 import math
@@ -12,6 +13,7 @@ from modules.advanced_analysis import explain_capture, readable_report
 from modules.assessment import Assessment
 from modules.inspection import inspection_text
 from modules.incidents import compare_markers
+from modules.frametimes import analyze_frames
 
 
 RESOURCE_SPECS = (
@@ -250,39 +252,49 @@ def reduce_chart(points, limit=1000):
 @contextmanager
 def session_files(source):
     path = Path(source)
+    names = ("amostras.jsonl", "amostras.jsonl.gz")
     if path.suffix.lower() == ".etl":
-        raise AnalysisError("ETL do WPR exige decodificação pelo Windows Performance Analyzer. Abra uma sessão SysPulse (pasta, ZIP ou amostras.jsonl).")
+        raise AnalysisError("Abra o ETL no diagnóstico detalhado.")
     if path.suffix.lower() == ".zip":
         with zipfile.ZipFile(path) as archive:
-            matches = [n for n in archive.namelist() if n.replace("\\", "/").split("/")[-1] == "amostras.jsonl"]
+            matches = [n for n in archive.namelist() if n.replace("\\\\", "/").split("/")[-1] in names]
             if len(matches) != 1:
-                raise AnalysisError("O ZIP precisa conter exatamente uma sessão com amostras.jsonl.")
-            root = matches[0][:-len("amostras.jsonl")]
+                raise AnalysisError("O ZIP precisa conter exatamente uma sessão com amostras.jsonl ou amostras.jsonl.gz.")
+            selected = matches[0]
+            root = selected.rsplit("/", 1)[0] + "/" if "/" in selected else ""
 
             def opener(name):
-                target = root + name
-                if target not in archive.namelist():
-                    raise FileNotFoundError(name)
-                if archive.getinfo(target).file_size > (512 * 1024 ** 2 if name == "amostras.jsonl" else 4 * 1024 ** 2):
+                target = selected if name == "amostras.jsonl" else root + name
+                if name == "frametimes.csv" and target not in archive.namelist():
+                    target += ".gz"
+                try:
+                    info = archive.getinfo(target)
+                except KeyError:
+                    raise FileNotFoundError(name) from None
+                if info.file_size > (512 * 1024 ** 2 if name in ("amostras.jsonl", "frametimes.csv") else 4 * 1024 ** 2):
                     raise AnalysisError(f"{name} excede o limite de leitura segura.")
-                return archive.open(target)
+                file = archive.open(target)
+                return gzip.GzipFile(fileobj=file) if target.endswith((".jsonl.gz", ".csv.gz")) else file
             yield opener
     else:
         root = path if path.is_dir() else path.parent
-        if not path.is_dir() and path.name not in ("amostras.jsonl", "sessao.json"):
-            raise AnalysisError("Selecione amostras.jsonl, sessao.json, um ZIP ou a pasta da sessão.")
+        if not path.is_dir() and path.name not in (*names, "sessao.json"):
+            raise AnalysisError("Selecione uma sessão, ZIP, amostras.jsonl ou amostras.jsonl.gz.")
 
         def opener(name):
             target = root / name
-            if target.stat().st_size > (512 * 1024 ** 2 if name == "amostras.jsonl" else 4 * 1024 ** 2):
+            if not target.exists() and name in ("amostras.jsonl", "frametimes.csv"):
+                target = root / (name + ".gz")
+            if target.stat().st_size > (512 * 1024 ** 2 if name in ("amostras.jsonl", "frametimes.csv") else 4 * 1024 ** 2):
                 raise AnalysisError(f"{name} excede o limite de leitura segura.")
-            return target.open("rb")
+            return gzip.open(target, "rb") if target.name.endswith((".jsonl.gz", ".csv.gz")) else target.open("rb")
         yield opener
 
 
 def analyze_session(source, cancel=None):
     warnings, markers, metadata = [], [], {}
     inventory = None
+    frames = None
     all_data = Accumulator(chart=True)
     near_markers, outside_markers = Accumulator(process_context=False), Accumulator(process_context=False)
     with session_files(source) as open_file:
@@ -298,7 +310,8 @@ def analyze_session(source, cancel=None):
             warnings.append("Metadados ilegíveis; análise baseada nas amostras.")
         metadata = {key: value for key, value in metadata.items()
                     if key in ("schema_version", "app_version", "demo", "started", "ended", "system", "python",
-                               "interval_ms", "count", "dropped", "reason", "max_hours", "max_raw_bytes", "window_seconds")
+                               "interval_ms", "count", "dropped", "reason", "max_hours", "max_raw_bytes", "window_seconds",
+                               "compressed", "duration_s", "symptom", "target_pid", "frame_error")
                     and (isinstance(value, (str, bool)) or number(value) or value is None)}
         try:
             with open_file("inventario.json") as file:
@@ -334,22 +347,47 @@ def analyze_session(source, cancel=None):
                         raise AnalysisError("A sessão excede o limite de 2.000 marcações.")
         except FileNotFoundError:
             pass
+        try:
+            with open_file("frametimes.csv") as file:
+                frames = analyze_frames(io.TextIOWrapper(file, encoding="utf-8-sig"), cancel or (lambda: False),
+                                        metadata.get("target_pid"))
+            if not frames["series"]:
+                warnings.append("Nenhum frametime válido nesta sessão. Confira o suporte e a permissão do PresentMon.")
+        except FileNotFoundError:
+            pass
+        except (ValueError, csv.Error, UnicodeError) as error:
+            warnings.append(f"Frametimes indisponíveis: {error}")
+        except InterruptedError:
+            raise AnalysisCancelled() from None
         markers.sort(key=lambda r: r["monotonic"])
         centers = [r["monotonic"] for r in markers]
         windows = [Accumulator() for _ in markers]
         before = [Accumulator() for _ in markers]
         after = [Accumulator() for _ in markers]
+        frame_windows = []
+        if frames and frames["series"]:
+            selected = frames["series"][0]
+            if selected["alignment"].startswith("QPC"):
+                frame_windows = [(event, Accumulator()) for event in selected["events"]
+                                 if number(event.get("monotonic"))]
         invalid = 0
         try:
             with open_file("amostras.jsonl") as file:
-                line_number = 0
+                line_number = total_bytes = 0
                 while True:
                     if cancel and cancel():
                         raise AnalysisCancelled()
-                    line = file.readline(1024 * 1024 + 1)
+                    try:
+                        line = file.readline(1024 * 1024 + 1)
+                    except (EOFError, gzip.BadGzipFile) as error:
+                        warnings.append(f"Gravação comprimida incompleta; linhas válidas preservadas ({type(error).__name__}).")
+                        break
                     if not line:
                         break
                     line_number += 1
+                    total_bytes += len(line)
+                    if total_bytes > 512 * 1024 ** 2:
+                        raise AnalysisError("Sessão descomprimida excede 512 MiB.")
                     if len(line) > 1024 * 1024 or line_number > 120000:
                         raise AnalysisError("Sessão excede os limites de análise (120.000 linhas; 1 MiB por linha).")
                     if not line.strip():
@@ -370,6 +408,9 @@ def analyze_session(source, cancel=None):
                         invalid += 1
                         continue
                     all_data.add(row)
+                    for frame, window in frame_windows:
+                        if abs(row["monotonic"] - frame["monotonic"]) <= 1:
+                            window.add(row)
                     left = bisect.bisect_left(centers, row["monotonic"] - 5)
                     right = bisect.bisect_right(centers, row["monotonic"] + 5)
                     (near_markers if left < right else outside_markers).add(row)
@@ -378,6 +419,9 @@ def analyze_session(source, cancel=None):
                         (before[i] if row["monotonic"] < centers[i] else after[i]).add(row)
         except FileNotFoundError as error:
             raise AnalysisError("Não foi encontrado amostras.jsonl na sessão selecionada.") from error
+
+    if metadata.get("frame_error"):
+        warnings.append(metadata["frame_error"])
     if invalid:
         warnings.append(f"{invalid} linha(s) inválida(s), repetida(s) ou fora de ordem foram ignoradas; análise parcial.")
     if not all_data.count:
@@ -407,9 +451,13 @@ def analyze_session(source, cancel=None):
         coverage = [window.first - marker["monotonic"], window.last - marker["monotonic"]] if window.count else [None, None]
         events.append({"marker": marker, "coverage": coverage, "analysis": window.finish(),
                        "before": pre.finish()["resources"], "after": post.finish()["resources"]})
+    for frame, window in frame_windows:
+        context = window.finish()
+        frame["resource_context"] = {"samples": context["samples"], "resources": context["resources"],
+                                     "collection": context["collection"]}
     symptoms = compare_markers(events, near_markers.finish(), outside_markers.finish())
     analysis = {"analysis_version": 4, "symptoms": symptoms, "inventory": inventory, "source": str(source), "metadata": metadata,
-                "summary": result, "events": events, "warnings": warnings,
+                "summary": result, "events": events, "warnings": warnings, "frametimes": frames,
                 "limitations": LIMITATIONS, "invalid_lines": invalid}
     analysis["explanation"] = explain_capture({}, analysis)
     return analysis
@@ -453,6 +501,13 @@ def report_text(result):
         lines += [finding["title"], finding["evidence"], finding["action"]]
     if not assessment.get("findings"):
         lines.append("Sem alerta nos critérios disponíveis; isso não descarta problemas não capturados.")
+    network = assessment.get("network", {})
+    if network.get("attempts"):
+        lines += ["", "CONEXÃO · TENTATIVAS ICMP",
+                  f"{network['replies']}/{network['attempts']} respostas · {network['timeouts']} sem resposta.",
+                  f"RTT médio {fmt(network.get('mean_ms'), ' ms')} · maior {fmt(network.get('max_ms'), ' ms')} · "
+                  f"variação média entre respostas {fmt(network.get('variation_ms'), ' ms')}.",
+                  "Timeout pode ser filtragem ICMP; este teste não mede a conexão específica de um aplicativo."]
     lines += ["", "ESTATÍSTICAS POR DISPOSITIVO"]
     for row in assessment.get("telemetry", []):
         lines.append(f"{row['name']}: mín {fmt(row['min'])} | média {fmt(row['mean'])} | máx {fmt(row['max'])} {row['unit']} | {row['count']} leituras")
@@ -476,3 +531,34 @@ def save_report(result, destination):
         temporary = target.with_suffix(target.suffix + ".tmp")
         temporary.write_text(contents, encoding="utf-8")
         temporary.replace(target)
+
+
+
+def export_metrics(source, destination, cancel=None):
+    from modules.diagnostics import CSV_FIELDS, metrics
+
+    destination = Path(destination)
+    temporary = destination.with_name(destination.name + ".tmp")
+    with session_files(source) as open_file, open_file("amostras.jsonl") as file:
+        with temporary.open("w", encoding="utf-8-sig", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            total = count = 0
+            while True:
+                if cancel and cancel():
+                    raise AnalysisCancelled()
+                line = file.readline(1024 * 1024 + 1)
+                if not line:
+                    break
+                total += len(line)
+                count += 1
+                if len(line) > 1024 * 1024 or total > 512 * 1024 ** 2 or count > 120000:
+                    raise AnalysisError("Sessão excede os limites de exportação.")
+                try:
+                    sample = json.loads(line)
+                    if isinstance(sample, dict) and number(sample.get("monotonic")):
+                        writer.writerow(metrics(sample))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+    temporary.replace(destination)
+    return destination

@@ -45,7 +45,12 @@ def demo_samples():
                              "read_ms": 14 if disk > 90 else .4, "write_ms": 8 if disk > 90 else .6, "queue": 1}],
                   "storage_percent": [{"disco": "C:", "percent": 42, "free": 290, "total": 500}],
                   "network": {"download_mbs": 1.2, "upload_mbs": .1, "total_down_mb": 750, "total_up_mb": 35},
-                  "ping": {"ms": 18}, "net_info": [], "sensor_status": "DADOS SIMULADOS — prévia de documentação",
+                  "ping": {"ms": 18}, "ping_at": 10000 + int(seconds // 5) * 5,
+                  "ping_target": "8.8.8.8",
+                  "ping_history": [{"at": 10000 + at, "ms": 18 + (at % 3)} for at in range(0, int(seconds) + 1, 5)],
+                  "net_info": [{"name": "Ethernet de demonstração", "ip": "192.0.2.10",
+                                "netmask": "255.255.255.0", "speed_mbps": 1000, "mtu": 1500}],
+                  "sensor_status": "DADOS SIMULADOS — prévia de documentação",
                   "page_reads_s": 0, "dpc_percent": .2, "interrupt_percent": .1, "sensors": []}
         result.append(sample)
     return result
@@ -112,7 +117,7 @@ def demo_inventory():
 
 def demo_advanced():
     from modules.advanced_analysis import parse_dpc_report, explain_capture
-    source = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "dpc-isr-simulado.txt"
+    source = Path(__file__).resolve().parents[1] / "examples" / "sessao-demo" / "dpc-isr-simulado.txt"
     result = parse_dpc_report(source.read_text(encoding="utf-8"))
     result.update(demo=True, quality={"lost_events": 0}, engine="DADOS SIMULADOS", source="Demonstração")
     result["explanation"] = explain_capture(result)

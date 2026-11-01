@@ -55,3 +55,14 @@ analise-etl-*/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Ferramentas locais de diagnóstico
+tools/bin/
+
+/SysPulse.spec
+
+# Pacotes de distribuição e modelos locais
+/SysPulse.app/
+*.gguf
+*.safetensors
+*.onnx

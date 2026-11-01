@@ -1,5 +1,7 @@
 # SysPulse 2.2 — análise explicada e captura avançada
 
+> Registro anterior à implementação 2.3. Consulte o [guia atual](../README.md) e a [validação 2.3](validacao-2.3.md) para recursos e testes desta entrega.
+
 ## O que o usuário recebe
 
 **Entenda o resultado** é a primeira aba da análise. Cada evidência tem uma descrição da medição, seu significado e um próximo teste. O cálculo e a explicação são locais: não precisam de internet, conta, chave ou modelo de linguagem.

@@ -13,6 +13,8 @@ from pathlib import Path
 
 import psutil
 
+from modules.wpr_profile import write_profile
+
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -109,7 +111,7 @@ class CaptureController:
         self._closed = threading.Event()
         self.requested_at = 0
 
-    def start(self, folder, seconds=60):
+    def start(self, folder, seconds=60, mode='detail'):
         if self._thread and self._thread.is_alive():
             raise RuntimeError("A solicitação de administrador ainda está em andamento.")
         if self.path and self.status().get("state") not in TERMINAL:
@@ -117,8 +119,8 @@ class CaptureController:
         if not find_tools()["wpr"]:
             raise RuntimeError("WPR indisponível. Esta captura requer Windows com wpr.exe.")
         seconds = int(seconds)
-        if not 15 <= seconds <= 180:
-            raise ValueError("Escolha entre 15 e 180 segundos.")
+        if mode not in ("detail", "circular") or not 15 <= seconds <= (7200 if mode == "circular" else 180):
+            raise ValueError("Escolha até 3 min em arquivo ou até 2 h no modo circular.")
         root = Path(folder).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
         if shutil.disk_usage(root).free < 2 * 1024 ** 3:
@@ -129,9 +131,10 @@ class CaptureController:
         (self.path / "commands").mkdir()
         self.launch_error = None
         self.requested_at = time.monotonic()
-        write_json(self.path / "request.json", {"id": identity, "seconds": seconds,
+        write_json(self.path / "request.json", {"id": identity, "seconds": seconds, "mode": mode,
                    "parent_pid": os.getpid(), "parent_created": psutil.Process().create_time(), "requested_at": now()})
-        arguments = [str(Path(__file__).resolve().parents[1] / "etw_capture.py"), str(self.path), identity]
+        arguments = (["--etw-helper", str(self.path), identity] if getattr(sys, "frozen", False) else
+                     [str(Path(__file__).resolve().parents[1] / "etw_capture.py"), str(self.path), identity])
 
         def launch():
             try:
@@ -192,7 +195,10 @@ def run_capture(folder, identity, run=wpr_command):
     if not re.fullmatch(r"[0-9a-f]{32}", identity):
         raise ValueError("Identificação inválida")
     request = read_json(folder / "request.json")
-    if request.get("id") != identity or type(request.get("seconds")) is not int or not 15 <= request["seconds"] <= 180:
+    mode = request.get("mode", "detail")
+    maximum = 7200 if mode == "circular" else 180
+    if (mode not in ("detail", "circular") or request.get("id") != identity
+            or type(request.get("seconds")) is not int or not 15 <= request["seconds"] <= maximum):
         raise ValueError("Solicitação inválida")
     instance = "SysPulse_" + identity
     state = {"instance": instance, "requested_at": request.get("requested_at"), "updated_at": now()}
@@ -218,11 +224,19 @@ def run_capture(folder, identity, run=wpr_command):
         temporary.mkdir(exist_ok=True)
         status("starting", "Preparando a gravação do Windows…")
         attempted = True
-        run(executable, instance, "-start", "GeneralProfile", "-filemode", "-recordtempto", temporary)
+        if mode == "circular":
+            profile = write_profile(folder / "perfil.wprp")
+            run(executable, instance, "-start", str(profile) + "!SysPulse.Light")
+        else:
+            run(executable, instance, "-start", "GeneralProfile.Light", "-filemode", "-recordtempto", temporary)
         start = time.monotonic()
         status("recording", "Reproduza o problema e marque quando perceber o sintoma.", started_at=now(), seconds=request["seconds"])
         reason = "Tempo de captura atingido"
+        save_at = None
         while time.monotonic() - start < request["seconds"]:
+            if save_at is not None and time.monotonic() >= save_at:
+                reason = "Janela do sintoma preservada após a marcação"
+                break
             if (folder / "stop.request").exists():
                 reason = "Encerrada pelo usuário"
                 break
@@ -243,6 +257,8 @@ def run_capture(folder, identity, run=wpr_command):
                         raise ValueError("Marcação inválida")
                     run(executable, instance, "-marker", f"SYSPULSE:{marker_id}", timeout=10)
                     marker["wpr_marker"] = True
+                    if mode == "circular" and save_at is None:
+                        save_at = time.monotonic() + 5
                 except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                     marker = {"id": command.stem, "wpr_marker": False, "error": str(error)}
                 marker["acknowledged_at"] = now()
@@ -255,7 +271,7 @@ def run_capture(folder, identity, run=wpr_command):
             (folder / "wpr-status.txt").write_text(run(executable, instance, "-status"), encoding="utf-8")
         except (RuntimeError, OSError, subprocess.SubprocessError):
             pass
-        run(executable, instance, "-stop", folder / "captura.etl", "SysPulse - investigacao de desempenho", timeout=180)
+        run(executable, instance, "-stop", folder / "captura.etl", "SysPulse - investigacao de desempenho", "-compress", timeout=180)
         if not (folder / "captura.etl").is_file() or not (folder / "captura.etl").stat().st_size:
             raise RuntimeError("O WPR não produziu um ETL válido.")
         saved = True

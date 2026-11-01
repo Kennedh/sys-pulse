@@ -12,7 +12,7 @@ from modules.advanced_capture import CaptureController, run_capture, write_json,
 from modules.ai_summary import ai_payload, validate_endpoint, explain_with_ai
 
 
-FIXTURE = Path(__file__).parent / "fixtures/dpc-isr-simulado.txt"
+FIXTURE = Path(__file__).resolve().parents[1] / "examples/sessao-demo/dpc-isr-simulado.txt"
 
 
 def test_dpc_and_isr_are_separate_and_cpu_times_are_summed():

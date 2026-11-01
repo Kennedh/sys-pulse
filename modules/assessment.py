@@ -1,5 +1,7 @@
 import math
 
+from modules.network import ping_statistics
+
 
 RULES = {
     'cpu': ("CPU total", 90, "Confira o ranking de CPU e repita a tarefa para comparar a carga."),
@@ -71,6 +73,8 @@ class Assessment:
         self.truncated = False
         self.disk_delays = {}
         self.process_batch = None
+        self.ping_batch = None
+        self.pings = []
 
     def metric(self, key, name, unit, value):
         if not valid(value):
@@ -104,6 +108,13 @@ class Assessment:
             else:
                 at, max_gap = sample["monotonic"], gap
             self.resources[key].add(value, at, threshold, max_gap, devices.get(key))
+        ping_at = sample.get("ping_at")
+        if valid(ping_at) and ping_at != self.ping_batch:
+            ping = sample.get("ping") or {}
+            self.pings.append({"ms": ping.get("ms") if valid(ping.get("ms")) else None})
+            self.ping_batch = ping_at
+        self.metric("commit", "Memória comprometida", "GiB", sample.get("commit_gb"))
+        self.metric("commit_limit", "Limite de comprometimento", "GiB", sample.get("commit_limit_gb"))
         self.metric("ram_available", "RAM disponível", "GiB", sample.get("ram_available_gb"))
         self.metric("page_reads", "Leituras de páginas", "/s", sample.get("page_reads_s"))
         self.metric("dpc", "Tempo de CPU em DPC", "%", sample.get("dpc_percent"))
@@ -171,7 +182,7 @@ class Assessment:
                              "action": "Compare este horário com a marcação e repita a tarefa. Confira o mesmo disco no WPA; "
                                        "30 ms/op é um critério de triagem, não limite de defeito. "
                                        "A gravação do ETL também pode disputar esse disco."})
-        return {"resources": resources, "findings": findings, "truncated": self.truncated,
+        return {"resources": resources, "findings": findings, "truncated": self.truncated, "network": ping_statistics(self.pings),
                 "telemetry": [{"key": key, "name": row["name"], "unit": row["unit"], **row["stat"].result()}
                               for key, row in self.telemetry.items()],
                 "method": "P95 por posição mais próxima (ceil), sem interpolação. Tempo alto soma intervalos entre duas leituras altas "
