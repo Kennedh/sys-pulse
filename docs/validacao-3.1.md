@@ -41,3 +41,18 @@ O validador de pacotes agora também executa auxiliares CPU e RAM por dois segun
 A instalação local preexistente é preservada pelo validador. Instalação/desinstalação em pasta personalizada é conferida pelos ambientes limpos de CI.
 
 Resultados locais completos ficam em diagnosticos/validacao-estresse, fora do Git.
+
+## Executável final e ambientes nativos
+
+O auxiliar GPU também foi executado no pacote Windows 3.1: três segundos, orçamento de 25%, 78 quadros, código de saída zero e encerramento por duração. Não houve teste prolongado nem detecção de artefatos.
+
+A rodada [41336734423](https://github.com/Kennedh/sys-pulse/actions/runs/41336734423) validou a tag 3.1.0:
+
+| Ambiente | Testes | Verificação do pacote |
+|---|---|---|
+| Windows x64 | 162 passaram | Abertura, auxiliares CPU/RAM, instalação e remoção em pasta personalizada |
+| Ubuntu 22.04 x64 | 161 passaram, um exclusivo de Windows não aplicável | Abertura, auxiliares CPU/RAM, instalação e remoção |
+| macOS 15 Intel | 161 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e auxiliares CPU/RAM |
+| macOS 15 Apple Silicon | 161 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e auxiliares CPU/RAM |
+
+Esses testes de pacote usaram cargas CPU/RAM de dois segundos, um processo e 16 MiB. A validação gráfica real foi feita nesta máquina Windows; os runners não demonstram desempenho GPU em outras placas.
