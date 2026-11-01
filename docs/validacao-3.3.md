@@ -35,3 +35,19 @@ As medições reais anteriores de GPU, CPU/RAM, quadros e consumo estão preserv
 ## Pacotes
 
 O executável Windows passou na abertura de demonstração, integridade do ZIP e auxiliares CPU/RAM de dois segundos. O validador preservou a instalação local existente. A análise do empacotamento confirmou a inclusão de ai_login, ai_connections e ai_providers. Os demais resultados nativos serão conferidos no workflow associado à tag da versão.
+
+
+## Ambientes nativos e publicação
+
+A execução [41347484736](https://github.com/Kennedh/sys-pulse/actions/runs/41347484736) validou a tag v3.3.0, no commit 0e34e93:
+
+| Ambiente | Testes | Pacote |
+|---|---|---|
+| Windows x64 | 238 passaram | ZIP, abertura, CPU/RAM, instalação e remoção em pasta personalizada |
+| Ubuntu 22.04 x64 | 237 passaram, um exclusivo de Windows não aplicável | Abertura, CPU/RAM, instalação e remoção |
+| macOS 15 Apple Silicon | 237 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e CPU/RAM |
+| macOS 15 Intel | 237 passaram, um exclusivo de Windows não aplicável | PKG, DMG, abertura e CPU/RAM |
+
+A [release v3.3.0](https://github.com/Kennedh/sys-pulse/releases/tag/v3.3.0) foi publicada após os quatro builds e confirmada como a mais recente. Os oito arquivos de distribuição e o manifesto SHA256SUMS.txt estão disponíveis. Os hashes do manifesto correspondem aos digests dos assets informados pelo GitHub.
+
+Os testes nativos validam o pacote e os contratos simulados. Eles não comprovam o acesso a contas reais, saldo, cotas ou geração autenticada nos serviços externos.
