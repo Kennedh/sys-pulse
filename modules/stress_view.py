@@ -260,5 +260,15 @@ class StressPanel(QWidget):
         self._closed = True
         self.timer.stop()
         self.controller.close()
-        self.recorder.shutdown()
-        self.activity.end_capture("stress")
+        try:
+            if self.path and self.options and self.phase in ("baseline", "working"):
+                result = self.controller.status()
+                if result.get("state") not in ("completed", "stopped", "failed"):
+                    result = {"kind": self.options["kind"], "state": "stopped", "elapsed_s": result.get("elapsed_s", 0),
+                              "errors": None, "reason": "Aplicativo encerrado antes da finalização da carga."}
+                result["stop_limits"] = {"cpu_c": self.cpu_limit.value(), "gpu_c": self.gpu_limit.value()}
+                result["thermal_readings"] = dict(self.thermal_coverage)
+                write_json(self.path / "stress.json", result)
+        finally:
+            self.recorder.shutdown()
+            self.activity.end_capture("stress")

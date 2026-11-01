@@ -34,7 +34,7 @@ CPU usa uma operação criptográfica com resultado conhecido. RAM verifica mem�
 
 ## Regressões e pacote
 
-161 testes passaram no Windows, incluindo períodos de carga, sensores em cache, fases, cancelamento antes de iniciar, mudança de provedor/modelo e referências/unidades da IA.
+162 testes passaram no Windows, incluindo períodos de carga, sensores em cache, fases, cancelamento antes de iniciar, mudança de provedor/modelo e referências/unidades da IA.
 
 O validador de pacotes agora também executa auxiliares CPU e RAM por dois segundos, com um processo e 16 MiB, no executável congelado. A GPU requer contexto gráfico real e foi validada nesta máquina pelo caminho descrito acima; runners sem GPU não servem como prova desse teste.
 

@@ -172,3 +172,15 @@ def test_malformed_stress_result_preserves_resource_analysis(tmp_path):
     assert result["summary"]["samples"] == 1
     assert "stress" not in result
     assert any("estresse inválido" in warning for warning in result["warnings"])
+
+
+def test_shutdown_preserves_interrupted_stress_context(tmp_path):
+    from modules.activity import ActivityState
+    from modules.stress_view import StressPanel
+    panel = StressPanel(ActivityState())
+    panel.path, panel.phase, panel.options = tmp_path, "baseline", {"kind": "cpu"}
+    panel.shutdown()
+    result = json.loads((tmp_path / "stress.json").read_text(encoding="utf-8"))
+    assert result["state"] == "stopped"
+    assert result["errors"] is None
+    assert "encerrado" in result["reason"]

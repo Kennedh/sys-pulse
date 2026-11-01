@@ -288,7 +288,7 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A versão 3.1 passou com 161 testes no Windows. A validação local executou cargas curtas de CPU, RAM e GPU, além do fluxo completo de gravação → carga → recuperação → análise. Os detalhes e limites estão em [validação 3.1](docs/validacao-3.1.md). A [validação 3.0](docs/validacao-3.0.md) preserva os testes anteriores nos quatro sistemas. O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
+A versão 3.1 passou com 162 testes no Windows. A validação local executou cargas curtas de CPU, RAM e GPU, além do fluxo completo de gravação → carga → recuperação → análise. Os detalhes e limites estão em [validação 3.1](docs/validacao-3.1.md). A [validação 3.0](docs/validacao-3.0.md) preserva os testes anteriores nos quatro sistemas. O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
 
 Veja [validação 3.0](docs/validacao-3.0.md), [validação anterior de coleta](docs/validacao-2.3.md), [histórico](CHANGELOG.md) e [revisão que orientou as melhorias](docs/revisao-produto-desempenho.md). As análises técnicas anteriores estão preservadas como histórico.
 
