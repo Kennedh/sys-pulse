@@ -13,6 +13,10 @@ from modules.incidents import symptom_evidence
 from modules.etl_details import parse_cpu_report, parse_disk_report, parse_fault_report
 
 
+STRESS_COMPONENTS = {"cpu": "CPU", "gpu": "GPU 3D", "memory": "RAM"}
+STRESS_STATES = {"completed": "carga concluída", "stopped": "interrompido", "failed": "falha de execução ou verificação"}
+
+
 class AdvancedCancelled(Exception):
     pass
 
@@ -231,7 +235,7 @@ def explain_capture(result, native=None):
         limits.append("Sem captura de recursos associada; CPU, RAM, GPU e disco não foram avaliados em conjunto neste relatório.")
     if "drivers" in result:
         limits.append("O ETL pode conter nomes de processos, caminhos e outros dados do sistema. O arquivo completo não é enviado à IA.")
-    steps += ["Reproduza a mesma tarefa numa captura curta. Marque quando perceber a falha.",
+    steps += ["Grave a partida ou a carga pelo tempo necessário e marque o sintoma. Use o modo leve para a sessão completa; o circular preserva eventos recentes.",
               "Faça outra captura com a mesma duração e sem o sintoma. Compare repetibilidade, contagens e durações.",
               "Investigue primeiro software, configuração e driver relacionados às evidências. Altere uma variável por vez e registre o resultado.",
               "Considere suspeita de hardware apenas após testes específicos do componente e evidências independentes. Este relatório não recomenda troca de peças."]
@@ -257,8 +261,28 @@ def explain_capture(result, native=None):
                 summary = ("Sem carga alta nos recursos disponíveis perto das marcações. "
                            "A amostragem pode perder pausas curtas; investigue o período no ETL.")
         else:
-            summary = "Sem marcações do sintoma: os resultados descrevem a sessão inteira. " + summary
-            limits.append("Marque a próxima pausa para comparar os recursos perto do sintoma com o restante da sessão.")
+            evolution = native.get("evolution") or {}
+            minutes = native.get("summary", {}).get("duration_s", 0) / 60
+            summary = (f"Sessão de {minutes:.1f} min analisada integralmente, com {len(evolution.get('periods', []))} períodos de evolução. "
+                       "Compare os períodos de maior carga, o início e o fim e os dados do aplicativo escolhido. "
+                       "Carga elevada em jogos e estresse pode ser esperada; não comprova defeito.")
+            if native.get("stress"):
+                summary = (f"Teste {STRESS_COMPONENTS.get(native['stress'].get('kind'), 'N/D')}: {STRESS_STATES.get(native['stress'].get('state'), 'N/D')}. "
+                           "Compare abaixo os recursos antes, durante e depois da carga; conclusão sem erro não certifica integridade.")
+            limits.append("Marcações são opcionais para localizar um sintoma; a evolução da sessão e os testes são analisados mesmo sem elas.")
+    if native and native.get("evolution"):
+        from modules.session_insights import insight_text
+        evidence.append({"id": f"E{len(evidence) + 1}", "title": "Evolução durante a sessão",
+                         "observed": insight_text(native["evolution"]),
+                         "meaning": "Localiza períodos de carga e mudanças ao longo do tempo; uso alto durante jogos ou estresse pode ser esperado.",
+                         "next_test": "Compare o mesmo trecho da tarefa, resolução, limites de FPS e condições de carga; preserve a duração relevante."})
+    if native and native.get("stress"):
+        stress = native["stress"]
+        evidence.append({"id": f"E{len(evidence) + 1}", "title": "Resultado da carga controlada",
+                         "observed": f"Teste {STRESS_COMPONENTS.get(stress.get('kind'), 'N/D')}; estado {STRESS_STATES.get(stress.get('state'), 'N/D')}; duração {stress.get('elapsed_s', 0):.1f} s; "
+                                     f"divergências verificadas: {stress.get('errors') if stress.get('errors') is not None else 'N/D'}; encerramento: {stress.get('reason', 'N/D')}.",
+                         "meaning": "Concluir uma carga não comprova integridade física. No teste GPU são verificados renderização e funcionamento, sem detector de artefatos.",
+                         "next_test": "Compare as fases antes, durante e depois da carga e repita mantendo a configuração."})
     return {"summary": summary, "evidence": evidence, "limitations": list(dict.fromkeys(limits)), "next_steps": steps,
             "conclusion": "Causa não confirmada; nenhuma peça condenada por esta análise."}
 
@@ -351,7 +375,8 @@ def analyze_etl(source, destination, cancel=lambda: False, native=None, xperf=No
     result.update(schema_version=2, source=str(source), analyzed_at=datetime.now().astimezone().isoformat(),
                   engine="Microsoft Xperf", native_summary=native.get("summary") if native else None,
                   native_symptoms=native.get("symptoms") if native else None,
-                  native_frametimes=native.get("frametimes") if native else None)
+                  native_frametimes=native.get("frametimes") if native else None,
+                  native_evolution=native.get("evolution") if native else None)
     result["explanation"] = explain_capture(result, native)
     if cancel():
         raise AdvancedCancelled()

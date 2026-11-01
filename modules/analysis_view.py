@@ -215,6 +215,17 @@ class AnalysisPanel(QWidget):
         self.event_table = table(["Recurso", "Pico antes (−5 s)", "Pico depois (+5 s)", "Carga alta na janela", "Carga alta fora das marcações", "Processo observado na janela"])
         event_layout.addWidget(self.event_table)
         self.tabs.addTab(events, "Marcações")
+        evolution = QWidget()
+        evolution_layout = QVBoxLayout(evolution)
+        self.evolution_note = QPlainTextEdit()
+        self.evolution_note.setReadOnly(True)
+        self.evolution_note.setMaximumHeight(210)
+        evolution_layout.addWidget(self.evolution_note)
+        self.evolution_table = table(["Minuto", "Amostras", "CPU média %", "Núcleo pico %", "RAM média %",
+                                      "GPU média %", "CPU °C", "Disco pico ms/op", "Quadros P99 ms", "RSS alvo MiB"])
+        evolution_layout.addWidget(self.evolution_table)
+        self.evolution_page = evolution
+
         triage = QWidget()
         triage_layout = QVBoxLayout(triage)
         self.triage_text = QPlainTextEdit()
@@ -240,6 +251,7 @@ class AnalysisPanel(QWidget):
         self.tabs.addTab(self.report, "Relatório e limites")
         self.ai = AISummaryPanel(ai_config)
         self.tabs.addTab(self.ai, "IA opcional")
+        self.tabs.addTab(self.evolution_page, "Evolução e carga")
         footer = QLabel("Médias das leituras disponíveis • CPU por processo normalizada pelo total de CPUs lógicas • N/D = dado indisponível")
         footer.setWordWrap(True)
         footer.setObjectName("muted")
@@ -333,6 +345,15 @@ class AnalysisPanel(QWidget):
         leader = ranked[0] if ranked and ranked[0]["metrics"]["cpu_percent"]["peak"] > 0 else None
         self.cards[2].setText("Líder de CPU por pico\n" + (f"{leader['name']} · {fmt(leader['metrics']['cpu_percent']['peak'], '%')}" if leader else "N/D"))
         self.cards[3].setText(f"{summary['duration_s']:.1f} s de captura\n{summary['samples']} amostras · {len(result['events'])} marcações")
+        from modules.session_insights import insight_text
+        evolution = result.get("evolution", {})
+        self.evolution_note.setPlainText(insight_text(evolution))
+        fill(self.evolution_table, [[fmt(row["offset_s"] / 60), row["samples"],
+            fmt(row["metrics"].get("cpu", {}).get("mean")), fmt(row["metrics"].get("core", {}).get("max")),
+            fmt(row["metrics"].get("ram", {}).get("mean")), fmt(row["metrics"].get("gpu", {}).get("mean")),
+            fmt(row["metrics"].get("cpu_temperature", {}).get("mean")),
+            fmt(row["metrics"].get("disk_latency", {}).get("max")), fmt((row.get("frames") or {}).get("p99_ms")),
+            fmt(row["target"].get("rss_mb", {}).get("mean"))] for row in evolution.get("periods", [])])
         self.chart.set_result(result)
         rows = []
         for r in summary["resources"]:

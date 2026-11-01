@@ -124,7 +124,7 @@ class AdvancedPanel(QWidget):
         active = self.controller.path is not None and state not in TERMINAL
         finishing = self.native_requested and not self.native_finished
         tools = find_tools()
-        other_busy = self.ai_config and (self.ai_config.activity.inference or self.ai_config.activity.maintenance or self.ai_config.activity.capture == "native")
+        other_busy = self.ai_config and (self.ai_config.activity.inference or self.ai_config.activity.maintenance or self.ai_config.activity.capture not in (None, "advanced"))
         self.start_button.setEnabled(not self.demo and not active and not finishing and not self._busy and not other_busy)
         self.duration.setEnabled(not active and not self._busy)
         self.open_button.setEnabled(not active and not finishing and not self._busy and not other_busy)

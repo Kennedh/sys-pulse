@@ -89,10 +89,10 @@ def test_gap_is_detected_from_timestamps_even_without_interval_field(tmp_path):
     assert any("coincidência" in text for text in result["explanation"]["limitations"])
 
 
-def test_no_marker_explanation_requests_useful_capture(tmp_path):
+def test_no_marker_explanation_describes_full_session(tmp_path):
     result = capture(tmp_path, [sample(1, 98)], [])
-    assert result["explanation"]["summary"].startswith("Sem marcações")
-    assert any("Marque a próxima pausa" in text for text in result["explanation"]["limitations"])
+    assert "analisada integralmente" in result["explanation"]["summary"]
+    assert any("Marcações são opcionais" in text for text in result["explanation"]["limitations"])
 
 
 @pytest.mark.parametrize("extra", [{"process_age_ms": -1},

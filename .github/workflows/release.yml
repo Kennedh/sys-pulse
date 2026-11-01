@@ -2,7 +2,6 @@ name: Instaladores e release
 
 on:
   push:
-    branches: [main]
     tags: ['v3.*']
     paths-ignore: ['**.md', 'docs/**', 'examples/validacao-modelos/**']
   workflow_dispatch:
@@ -99,7 +98,7 @@ jobs:
         run: |
           python -c "from tools.build_release import checksums; from pathlib import Path; checksums(Path('dist/releases'))"
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "SysPulse $RELEASE_TAG" --notes-file docs/releases/v3.0.0.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "SysPulse $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
           fi
           gh release upload "$RELEASE_TAG" dist/releases/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -19,6 +19,7 @@ from modules.inspection import InspectionService
 from modules.inspection_view import InspectionPanel
 from modules.advanced_view import AdvancedPanel
 from modules.activity import ActivityState
+from modules.stress_view import StressPanel
 from modules.version import VERSION
 from modules.ai_settings import AIConfig, AISettingsPanel
 from modules.overview_view import LivePanel, HardwarePanel, NetworkPanel
@@ -169,6 +170,12 @@ class App(QMainWindow):
         settings_scroll.setWidgetResizable(True)
         settings_scroll.setWidget(self.settings_panel)
         self.pages.addWidget(settings_scroll)
+        self.stress = StressPanel(self.activity, demo=demo)
+        stress_scroll = QScrollArea()
+        stress_scroll.setWidgetResizable(True)
+        stress_scroll.setWidget(self.stress)
+        self.pages.addWidget(stress_scroll)
+        self.stress.ready.connect(self.analyze_capture)
         self.analysis.ai.configure_requested.connect(lambda: self.show_page(7))
         self.advanced.ai.configure_requested.connect(lambda: self.show_page(7))
         self.diagnostic.configure_ai.connect(lambda: self.show_page(7))
@@ -178,10 +185,12 @@ class App(QMainWindow):
                                     if generation == self.advanced._generation else None)
         self.activity.changed.connect(self.on_activity)
         self.ai_config.changed.connect(lambda: self.diagnostic.ai_button.setText(
-            f"IA opcional · {self.ai_config.model or 'escolher modelo'} · usar após a captura"))
+            ("Análise integrada · sem IA" if not self.ai_config.enabled else
+             "Online anônima · sem conta · usar após a captura" if self.ai_config.provider == "horde" else
+             f"IA · {self.ai_config.model or 'escolher modelo'} · usar após a captura")))
         self.nav_buttons = []
         for index, name in ((1, "VISÃO GERAL"), (3, "INVESTIGAR"), (4, "SESSÕES"),
-                            (7, "CONFIGURAÇÕES"), (0, "HARDWARE"), (2, "REDE"), (5, "DRIVERS E SAÚDE")):
+                            (8, "TESTES DE ESTRESSE"), (7, "CONFIGURAÇÕES"), (0, "HARDWARE"), (2, "REDE"), (5, "DRIVERS E SAÚDE")):
             button = QPushButton(name)
             button.setObjectName("navigation")
             button.setCheckable(True)
@@ -262,6 +271,7 @@ class App(QMainWindow):
     def submit_sample(self, sample):
         self.recorder.submit(sample)
         self.advanced.submit(sample)
+        self.stress.submit(sample)
 
     def refresh_inventory(self):
         if self.inspection_service.refresh():
@@ -273,6 +283,8 @@ class App(QMainWindow):
             return
         self._inventory = snapshot
         self.advanced.inventory = snapshot
+        self.stress.inventory = snapshot
+        self.stress.update_state()
         if self.advanced.recorder.active.is_set():
             self.advanced.recorder.command("inventory", snapshot)
         self.inspection.set_snapshot(snapshot)
@@ -379,6 +391,9 @@ class App(QMainWindow):
 
 
     def mark_stutter(self):
+        if self.stress.phase:
+            self.stress.mark(self.diagnostic.note.text() or "Sintoma percebido durante o teste")
+            return
         self.advanced.note.setText(self.diagnostic.note.text())
         self.advanced.mark()
         now = time.monotonic()
@@ -441,6 +456,7 @@ class App(QMainWindow):
         if self._closed:
             return
         self._closed = True
+        self.stress.shutdown()
         self.settings_panel.shutdown()
         self.timer.stop()
         self.hotkey.close()

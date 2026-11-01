@@ -42,7 +42,7 @@ def main():
         for filename, page, tab in (("analise.png", 4, 1), ("explicacao.png", 4, 0), ("processos.png", 4, 2),
                                     ("marcacoes.png", 4, 3), ("captura.png", 3, 0), ("triagem.png", 4, 4),
                                     ("sensores.png", 4, 5), ("drivers.png", 5, 0), ("avancado.png", 6, 0), ("ia-opcional.png", 6, -1),
-                                    ("configuracoes.png", 7, 0), ("live.png", 1, 0), ("hardware.png", 0, 0), ("rede.png", 2, 0)):
+                                    ("configuracoes.png", 7, 0), ("live.png", 1, 0), ("hardware.png", 0, 0), ("rede.png", 2, 0), ("estresse.png", 8, 0), ("evolucao.png", 4, 9)):
             window.show_page(page)
             window.analysis.tabs.setCurrentIndex(tab)
             if page == 6:

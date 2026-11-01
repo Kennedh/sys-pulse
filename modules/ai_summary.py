@@ -80,6 +80,13 @@ def ai_payload(result):
         values = {key: finite(row.get(key)) for key in ("count", "median_ms", "p95_ms", "p99_ms", "max_ms", "long_intervals", "long_threshold_ms")}
         frame_metrics.append(values)
         evidence.append({"id": f"E{len(evidence) + 1}", "type": "frametime", "category": "graphics", "unit": "ms", "candidate": (row.get("long_intervals") or 0) > 0, **values})
+    evolution = result.get("native_evolution") or result.get("evolution") or {}
+    growth = evolution.get("target_memory") or {}
+    if (finite(growth.get("delta_mb")) or 0) >= 256 and (finite(evolution.get("duration_s")) or 0) >= 300:
+        evidence.append({"id": f"E{len(evidence) + 1}", "type": "trend", "category": "memory",
+                         "metric": "RSS do aplicativo escolhido; crescimento não comprova vazamento",
+                         "unit": "MiB", "candidate": True, "early": finite(growth.get("early_mb")),
+                         "late": finite(growth.get("late_mb")), "delta": finite(growth.get("delta_mb"))})
     network = summary.get("assessment", {}).get("network", {})
     return {"evidence": evidence, "frametimes": frame_metrics,
             "network": {key: finite(network.get(key)) for key in ("attempts", "replies", "timeouts", "mean_ms", "max_ms", "variation_ms")},
@@ -152,9 +159,10 @@ class AISummaryPanel(QWidget):
 
     def update_state(self):
         model = self.config.model or "escolha um modelo"
-        self.choice.setText(f"Modelo: {model}\nDisponível após a captura. A seleção não carrega o modelo.")
+        self.choice.setText("Análise integrada selecionada. A explicação local está disponível." if not self.config.enabled else
+                            f"Modelo: {model}\\nDisponível após a captura. A seleção não carrega o modelo.")
         blocked = self.config.activity.busy
-        self.send.setEnabled(self.payload is not None and not blocked and not self._busy)
+        self.send.setEnabled(self.payload is not None and self.config.enabled and not blocked and not self._busy)
         self.configure.setEnabled(not blocked)
         self.cancel_button.setVisible(self._busy and self.config.provider == "horde")
 
@@ -168,7 +176,7 @@ class AISummaryPanel(QWidget):
         self.update_state()
 
     def request(self):
-        if self.payload is None or self._busy:
+        if self.payload is None or self._busy or not self.config.enabled:
             return
         if not any(row.get("candidate") for row in self.payload.get("evidence", [])):
             self.answer.setPlainText(render_explanation('{"findings":[]}', self.payload))

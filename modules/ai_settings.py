@@ -3,7 +3,7 @@ import threading
 from PySide6.QtCore import QObject, QSettings, Signal, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel,
-                              QComboBox, QLineEdit, QPushButton, QSpinBox, QGroupBox, QCheckBox)
+                              QComboBox, QLineEdit, QPushButton, QSpinBox, QGroupBox, QCheckBox, QRadioButton, QButtonGroup)
 
 from modules.activity import ActivityState
 from modules.credentials import CredentialStore
@@ -27,14 +27,17 @@ class AIConfig(QObject):
         self.store = CredentialStore()
         self.remember_key = self.settings.value("ai/remember_key", False, type=bool)
         self.key = self.store.read(self.provider) if self.remember_key else ""
+        self.enabled = self.settings.value("ai/enabled", True, type=bool)
         self.cache = {}
 
     def values(self):
         return {"provider": self.provider, "endpoint": self.endpoint, "model": self.model,
-                "key": self.key, "answer_tokens": self.answer_tokens, "structured": True}
+                "key": self.key, "answer_tokens": self.answer_tokens, "structured": True, "enabled": self.enabled}
 
     def save(self, values):
         validate_endpoint(values["endpoint"])
+        self.enabled = bool(values.get("enabled", True))
+        self.settings.setValue("ai/enabled", self.enabled)
         self.provider, self.endpoint = values["provider"], values["endpoint"]
         self.model, self.key = values["model"].strip(), values.get("key", "")
         self.answer_tokens = int(values.get("answer_tokens", 900))
@@ -45,6 +48,8 @@ class AIConfig(QObject):
             self.store.delete(self.provider)
         self.remember_key = remember
         self.settings.setValue("ai/remember_key", remember)
+        self.settings.setValue("ai/providers/" + self.provider + "/model", self.model)
+        self.settings.setValue("ai/providers/" + self.provider + "/endpoint", self.endpoint)
         for name in ("provider", "endpoint", "model", "answer_tokens"):
             self.settings.setValue("ai/" + name, getattr(self, name))
         self.changed.emit()
@@ -66,6 +71,20 @@ class AISettingsPanel(QWidget):
                        "A IA só pode analisar depois da captura; o Ollama descarrega o modelo ao concluir.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        self.modes = {}
+        self.mode_group = QButtonGroup(self)
+        for key, caption in (("integrated", "Análise integrada · sem IA e sem configuração"),
+                             ("horde", "Online · grátis, sem conta e sem download"),
+                             ("ollama", "Local · funciona sem internet após baixar o modelo"),
+                             ("advanced", "Já uso outro serviço · configuração avançada")):
+            button = QRadioButton(caption)
+            self.mode_group.addButton(button)
+            self.modes[key] = button
+            layout.addWidget(button)
+        self.active = QLabel()
+        self.active.setObjectName("card")
+        self.active.setWordWrap(True)
+        layout.addWidget(self.active)
         form = QFormLayout()
         self.form = form
         self.provider = QComboBox()
@@ -81,7 +100,7 @@ class AISettingsPanel(QWidget):
         self.key.setPlaceholderText("Sem marcar Lembrar, a chave fica apenas na memória")
         self.key.setText(config.key)
         form.addRow("Onde analisar", self.provider)
-        form.addRow("Modelo", self.model)
+        form.addRow("Modelo para analisar", self.model)
         form.addRow("Sua chave", self.key)
         layout.addLayout(form)
         self.remember = QCheckBox("Lembrar minha chave no cofre do Windows")
@@ -94,7 +113,7 @@ class AISettingsPanel(QWidget):
         controls = QHBoxLayout()
         self.check = QPushButton("Detectar modelos / testar conexão")
         self.check.clicked.connect(self.discover)
-        self.save = QPushButton("Salvar preferência")
+        self.save = QPushButton("Usar esta configuração")
         self.save.clicked.connect(self.apply)
         self.guide = QPushButton("Abrir instruções do serviço")
         self.guide.clicked.connect(self.open_guide)
@@ -102,6 +121,7 @@ class AISettingsPanel(QWidget):
             controls.addWidget(widget)
         layout.addLayout(controls)
         advanced = QGroupBox("Opções de conexão")
+        self.connection_options = advanced
         advanced.setCheckable(True)
         advanced.setChecked(False)
         advanced_form = QFormLayout(advanced)
@@ -131,26 +151,71 @@ class AISettingsPanel(QWidget):
         self.help.setText(PROVIDERS[config.provider]["help"])
         self.update_key_fields()
         self.models.setVisible(config.provider in ("ollama", "ollama_cloud"))
+        for mode, button in self.modes.items():
+            button.clicked.connect(lambda checked=False, key=mode: self.choose_mode(key))
+        self.sync_mode()
         self.update_state()
+
+    def choose_mode(self, mode):
+        if self.config.activity.busy:
+            return
+        if mode in ("horde", "ollama"):
+            self.provider.setCurrentIndex(self.provider.findData(mode))
+        self.modes[mode].setChecked(True)
+        self.update_mode_controls()
+        if mode != "advanced":
+            self.apply()
+
+    def sync_mode(self):
+        mode = ("integrated" if not self.config.enabled else self.config.provider
+                if self.config.provider in ("horde", "ollama") else "advanced")
+        self.modes[mode].setChecked(True)
+        self.update_mode_controls()
+
+    def update_mode_controls(self):
+        mode = next((key for key, button in self.modes.items() if button.isChecked()), "horde")
+        advanced = mode == "advanced"
+        enabled = mode != "integrated"
+        for widget in (self.provider, self.form.labelForField(self.provider)):
+            widget.setVisible(advanced)
+        for widget in (self.model, self.form.labelForField(self.model)):
+            widget.setVisible(enabled and mode != "horde")
+        for widget in (self.check, self.save, self.guide, self.help):
+            widget.setVisible(enabled)
+        self.check.setText("Verificar serviço online" if mode == "horde" else "Listar modelos disponíveis")
+        self.connection_options.setVisible(mode in ("ollama", "advanced"))
+        self.models.setVisible(enabled and self.provider.currentData() in ("ollama", "ollama_cloud"))
+        self.update_key_fields()
+        description = ("Análise integrada ativa · sem modelo, conta ou envio de dados." if not self.config.enabled else
+                       "Online anônima ativa · usa fila comunitária após sua confirmação." if self.config.provider == "horde" else
+                       f"Configuração ativa: {PROVIDERS[self.config.provider]['name']} · {self.config.model or 'escolha o modelo'}.")
+        self.active.setText(description + "\nEscolher um modo não carrega o modelo nem inicia análise.")
 
     def values(self):
         return {"provider": self.provider.currentData(), "endpoint": self.endpoint.text().strip(),
                 "model": self.model.currentText().strip(), "key": self.key.text(),
-                "answer_tokens": self.tokens.value(), "remember_key": self.remember.isChecked()}
+                "answer_tokens": self.tokens.value(), "remember_key": self.remember.isChecked(),
+                "enabled": not self.modes["integrated"].isChecked()}
 
     def use_preset(self):
         preset = PROVIDERS[self.provider.currentData()]
-        self.endpoint.setText(preset["endpoint"])
+        remembered = "ai/providers/" + self.provider.currentData()
+        self.endpoint.setText(self.config.settings.value(remembered + "/endpoint", preset["endpoint"]))
         self.model.clear()
-        self.model.addItem(preset["model"])
+        self.model.addItem(self.config.settings.value(remembered + "/model", preset["model"]))
         self.key.setText(self.config.store.read(self.provider.currentData()) if self.remember.isChecked() else "")
         self.help.setText(preset["help"])
         self.update_key_fields()
         self.models.setVisible(self.provider.currentData() in ("ollama", "ollama_cloud"))
         self.models.set_provider(self.provider.currentData())
+        if hasattr(self, "modes"):
+            mode = self.provider.currentData() if self.provider.currentData() in ("horde", "ollama") else "advanced"
+            self.modes[mode].setChecked(True)
+            self.update_mode_controls()
 
     def sync_config(self):
         self.model.setCurrentText(self.config.model)
+        self.sync_mode()
 
     def shutdown(self):
         self._closed = True
@@ -168,8 +233,11 @@ class AISettingsPanel(QWidget):
             return False
         try:
             self.config.save(self.values())
-            self.status.setText("Preferência salva. " + ("Chave guardada no cofre do Windows." if self.remember.isChecked() else "Chave somente na memória.") +
-                                " Nenhuma inferência foi iniciada.")
+            message = ("Análise integrada selecionada. Sem modelo ou envio de dados." if not self.config.enabled else
+                       "Online anônima selecionada. Nenhuma conta ou chave é necessária." if self.config.provider == "horde" else
+                       "Modelo local selecionado. O modelo só trabalha quando a análise for solicitada." if self.config.provider == "ollama" else
+                       "Configuração salva. Nenhuma inferência foi iniciada.")
+            self.status.setText(message)
         except (ValueError, TypeError, OSError) as error:
             self.status.setText(str(error))
             return False
@@ -210,6 +278,8 @@ class AISettingsPanel(QWidget):
 
     def update_state(self):
         available = not self.config.activity.busy and not self._busy
+        for button in self.modes.values():
+            button.setEnabled(available)
         self.remember.setEnabled(available and self.config.store.api is not None)
         for widget in (self.provider, self.model, self.key, self.check, self.save, self.endpoint, self.tokens):
             widget.setEnabled(available)

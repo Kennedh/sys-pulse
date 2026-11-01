@@ -1,4 +1,4 @@
-# SysPulse 3.0
+# SysPulse 3.1
 
 **Grave o desempenho, marque o sintoma e investigue as evidências.**
 
@@ -14,12 +14,12 @@ Os prints e a sessão de demonstração usam **dados simulados**, identificados 
 
 Os arquivos ficam em **Releases → Assets** no GitHub. Modelos de IA não acompanham o instalador.
 
-| Sistema | Arquivo da versão 3.0 | Instalação |
+| Sistema | Arquivo da versão 3.1 | Instalação |
 |---|---|---|
-| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.0.0/SysPulse-3.0.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
-| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.0.0/SysPulse-3.0.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
-| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.0.0/SysPulse-3.0.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
-| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.0.0/SysPulse-3.0.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
+| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
+| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
+| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
+| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.1.0/SysPulse-3.1.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
 
 A seção Assets também oferece ZIP portátil no Windows, TAR.GZ no Linux, DMG no macOS e SHA256SUMS.txt para conferir a integridade. No DMG, arraste o aplicativo para a pasta desejada. A disponibilidade de cada arquivo depende de seu build nativo concluir com sucesso.
 
@@ -58,6 +58,38 @@ As capturas WPR solicitam administrador pelo UAC apenas para o auxiliar. O softw
 
 **Mais opções** reúne intervalo, pasta, sensores extras, PresentMon e acesso ao ETL. A interface impede capturas simultâneas e análise por IA durante uma gravação.
 
+## Sessões longas de jogos e cargas
+
+Use o modo leve para gravar a partida inteira pelo tempo escolhido. Não é necessário encurtar a tarefa nem marcar um sintoma para analisar a evolução.
+
+A aba **Evolução e carga** mostra períodos de até um minuto, com CPU, núcleo mais ocupado, RAM, GPU, temperatura, latência de disco, frametime P99 quando disponível e RSS do aplicativo escolhido. O relatório destaca até cinco períodos acima dos critérios de triagem e compara os terços inicial e final da sessão.
+
+Sensores e processos em cache são deduplicados quando possuem identificador de leitura. Lacunas não são preenchidas. Períodos iniciais e finais podem ser parciais. Uso elevado é esperado em vários jogos e testes; não comprova gargalo ou defeito. Variação de RSS não confirma vazamento e queda de frequência reportada não confirma throttling.
+
+![Evolução com dados simulados](docs/images/evolucao.png)
+
+## Testes de estresse
+
+Abra **TESTES DE ESTRESSE**, escolha componente, duração e intensidade solicitada. A gravação começa automaticamente, registra cinco segundos de linha de base, acompanha toda a carga e mantém cinco segundos de recuperação. O resultado abre em Sessões.
+
+| Teste | O que executa | Limite |
+|---|---|---|
+| CPU | Processos separados com PBKDF2-SHA256 e verificação de um resultado conhecido | Não cobre todas as instruções, caches ou modos de falha do processador. |
+| GPU 3D | Shader OpenGL 3.2 em uma janela de 960×540 | Sem detector de artefatos ou teste integral de VRAM. O driver escolhe o adaptador. |
+| RAM | Escrita/leitura dos padrões 0xAA/0x55 em blocos de 1 MiB | Verifica somente a alocação virtual escolhida, até 25% da RAM disponível; não substitui MemTest. |
+
+A duração da carga pode ser 5, 15, 30 ou 60 minutos. A intensidade é um orçamento de trabalho, não uma promessa de utilização exata. O padrão CPU usa até 64 processos lógicos disponíveis e 50% do orçamento por processo; é possível ajustar.
+
+**Parar teste** encerra a carga e preserva a recuperação. **Marcar sintoma** ou Ctrl+Alt+F8 registra uma percepção real; fases automáticas não são tratadas como sintomas.
+
+Os limites configuráveis de temperatura começam em 90 °C para CPU e 85 °C para GPU. Eles são precauções, não limites universais de hardware. A parada depende de sensores atualizados; sem leitura correspondente, ela não pode ser verificada. O teste também solicita parada quando o monitor perde atualização ou há pouca RAM disponível.
+
+Mantenha a janela GPU visível. Renderização por software é recusada. Fechar a janela interrompe o teste. A IA e outros modos de captura ficam bloqueados durante a sessão.
+
+Concluir sem divergências não certifica estabilidade física. Teste interrompido, falha de processo e ausência de verificação GPU aparecem separados de uma conclusão normal. Os parâmetros, limites, leituras térmicas e resultados ficam em stress.json junto à sessão.
+
+![Teste de estresse em demonstração](docs/images/estresse.png)
+
 ## Quadros e frametimes
 
 Ao investigar imagem engasgando, habilite a captura de quadros e selecione o aplicativo. O pacote gerado com a ferramenta local inclui o [PresentMon](https://github.com/GameTechDev/PresentMon); no código-fonte, informe o executável em Mais opções ou disponibilize-o no PATH.
@@ -82,6 +114,17 @@ A disponibilidade depende do hardware, driver e permissões. N/D significa ausê
 Temperatura, clock efetivo, configuração de canais de memória, saúde SMART/NVMe completa e integridade física não estão garantidos por essas consultas. O software não altera clocks, tensões, drivers ou planos de energia.
 
 Sensores extras podem ser lidos do [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) em http://127.0.0.1:8085/data.json. Ative seu servidor local e a opção correspondente em Mais opções. NVIDIA também usa NVML quando disponível.
+
+## Escolher a análise
+
+Em Configurações, escolha um dos modos:
+
+- **Análise integrada:** sem IA, internet ou configuração.
+- **Online:** acesso anônimo, sem conta, chave ou download de modelo.
+- **Local:** use um modelo instalado ou prepare um download.
+- **Já uso outro serviço:** mostra provedor, chave e opções avançadas.
+
+A tela identifica a configuração ativa. Trocar entre online e local preserva o último modelo salvo de cada provedor. Os modos simples são aplicados ao selecionar; para alterar modelo ou opções avançadas, use **Usar esta configuração**. Nenhum modo inicia inferência ao ser escolhido.
 
 ## IA sem login ou chave
 
@@ -245,7 +288,7 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A suíte Windows passou com 144 testes; Linux e macOS passaram com 143 e um teste exclusivo de Windows não aplicável. Os quatro pacotes nativos passaram nas verificações de instalação/abertura descritas na [validação 3.0](docs/validacao-3.0.md). O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
+A versão 3.1 passou com 161 testes no Windows. A validação local executou cargas curtas de CPU, RAM e GPU, além do fluxo completo de gravação → carga → recuperação → análise. Os detalhes e limites estão em [validação 3.1](docs/validacao-3.1.md). A [validação 3.0](docs/validacao-3.0.md) preserva os testes anteriores nos quatro sistemas. O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
 
 Veja [validação 3.0](docs/validacao-3.0.md), [validação anterior de coleta](docs/validacao-2.3.md), [histórico](CHANGELOG.md) e [revisão que orientou as melhorias](docs/revisao-produto-desempenho.md). As análises técnicas anteriores estão preservadas como histórico.
 

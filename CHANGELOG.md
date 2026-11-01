@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 3.1.0 — 01/11/2026
+
+- Seleção de análise por modos claros: integrada, online anônima, local e serviço avançado.
+- Configuração ativa explícita e modelo salvo por provedor.
+- Evolução por minuto, tendências de início/fim e períodos de maior pressão em sessões longas.
+- Frametime por período, RSS do aplicativo e comparação das fases de estresse.
+- Removida a recomendação genérica de encurtar capturas; marcações permanecem opcionais.
+- Cargas CPU com resultado conhecido, RAM com escrita/leitura verificada e GPU 3D via OpenGL.
+- Gravação automática antes, durante e depois da carga; parada, limites térmicos e cobertura informados.
+- Auxiliares isolados, compatibilidade de multiprocessing no executável e validação de CPU/RAM empacotados.
+- Testes, documentação e prints atualizados.
+
 ## 3.0.0 — 01/11/2026
 
 - Instaladores nativos e pacotes portáteis para Windows, Linux e macOS, com builds por arquitetura.

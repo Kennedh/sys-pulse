@@ -14,6 +14,8 @@ from modules.assessment import Assessment
 from modules.inspection import inspection_text
 from modules.incidents import compare_markers
 from modules.frametimes import analyze_frames
+from modules.session_insights import SessionInsights, insight_text
+from modules.version import VERSION
 
 
 RESOURCE_SPECS = (
@@ -313,6 +315,19 @@ def analyze_session(source, cancel=None):
                                "interval_ms", "count", "dropped", "reason", "max_hours", "max_raw_bytes", "window_seconds",
                                "compressed", "duration_s", "symptom", "target_pid", "frame_error")
                     and (isinstance(value, (str, bool)) or number(value) or value is None)}
+        stress = None
+        try:
+            with open_file("stress.json") as file:
+                candidate = json.load(file)
+            if (isinstance(candidate, dict) and candidate.get("kind") in ("cpu", "gpu", "memory")
+                    and candidate.get("state") in ("completed", "stopped", "failed")
+                    and number(candidate.get("elapsed_s"))):
+                stress = candidate
+            else:
+                warnings.append("Resultado de estresse inválido; análise de recursos preservada.")
+        except (FileNotFoundError, ValueError, UnicodeError):
+            pass
+        evolution = SessionInsights(metadata.get("target_pid"), stress)
         try:
             with open_file("inventario.json") as file:
                 inventory = json.load(file)
@@ -408,6 +423,7 @@ def analyze_session(source, cancel=None):
                         invalid += 1
                         continue
                     all_data.add(row)
+                    evolution.add(row, resource_values(row)[0], process_rows(row))
                     for frame, window in frame_windows:
                         if abs(row["monotonic"] - frame["monotonic"]) <= 1:
                             window.add(row)
@@ -458,7 +474,9 @@ def analyze_session(source, cancel=None):
     symptoms = compare_markers(events, near_markers.finish(), outside_markers.finish())
     analysis = {"analysis_version": 4, "symptoms": symptoms, "inventory": inventory, "source": str(source), "metadata": metadata,
                 "summary": result, "events": events, "warnings": warnings, "frametimes": frames,
-                "limitations": LIMITATIONS, "invalid_lines": invalid}
+                "limitations": LIMITATIONS, "invalid_lines": invalid, "evolution": evolution.result(frames)}
+    if stress:
+        analysis["stress"] = stress
     analysis["explanation"] = explain_capture({}, analysis)
     return analysis
 
@@ -470,11 +488,12 @@ def ranked_processes(summary, field="cpu_percent", statistic="peak"):
 
 def report_text(result):
     summary = result["summary"]
-    lines = ["SYS-PULSE 2.2 — ANÁLISE DE PERFORMANCE", "", f"Sessão: {result['source']}",
+    lines = [f"SYS-PULSE {VERSION} — ANÁLISE DE PERFORMANCE", "", f"Sessão: {result['source']}",
              f"Período: {summary['start']} a {summary['end']}",
              f"Duração: {summary['duration_s']:.1f} s | Amostras: {summary['samples']}", ""]
     if result.get("explanation"):
         lines += [readable_report(result, "ENTENDA A CAPTURA"), "", "DETALHAMENTO TÉCNICO"]
+    lines += [insight_text(result.get("evolution", {})), ""]
     dominant = summary["dominant"]
     if dominant:
         lines.append(f"Maior utilização média (%): {dominant['name']} — {dominant['mean']:.1f}%")

@@ -59,7 +59,7 @@ def analyze_frames(file, cancel=lambda: False, target_pid=None):
                 invalid += 1
                 continue
             groups[key] = {"values": array("d"), "top": [], "previous": None,
-                           "metric": None, "alignment": "unavailable"}
+                           "metric": None, "alignment": "unavailable", "periods": {}}
         group = groups[key]
         at = numeric(row.get("CPUStartQPCTime"))
         if at is not None:
@@ -83,6 +83,10 @@ def analyze_frames(file, cancel=lambda: False, target_pid=None):
             invalid += 1
             continue
         group["values"].append(value)
+        if at is not None:
+            minute = int(at // 60)
+            if minute in group["periods"] or len(group["periods"]) < 256:
+                group["periods"].setdefault(minute, array("d")).append(value)
         item = (value, total, at, numeric(row.get("MsGPUBusy") or row.get("GPUBusy")),
                 numeric(row.get("MsCPUBusy") or row.get("CPUBusy")))
         heapq.heappush(group["top"], item)
@@ -96,7 +100,14 @@ def analyze_frames(file, cancel=lambda: False, target_pid=None):
         count = len(ordered)
         median = ordered[(count - 1) // 2]
         threshold = max(50, median * 3)
-        series.append({"pid": pid, "swapchain": chain, "count": count, "metric": group["metric"],
+        periods = []
+        for minute, values in sorted(group["periods"].items()):
+            ordered_period = sorted(values)
+            periods.append({"minute": minute, "count": len(values),
+                            "p99_ms": ordered_period[math.ceil(.99 * len(values)) - 1],
+                            "mean_ms": sum(values) / len(values), "max_ms": ordered_period[-1],
+                            "over_50_ms": sum(value > 50 for value in values)})
+        series.append({"periods": periods, "pid": pid, "swapchain": chain, "count": count, "metric": group["metric"],
                        "alignment": group["alignment"], "median_ms": median,
                        "p95_ms": ordered[math.ceil(.95 * count) - 1], "p99_ms": ordered[math.ceil(.99 * count) - 1],
                        "max_ms": ordered[-1], "mean_ms": sum(ordered) / count,

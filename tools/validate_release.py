@@ -21,6 +21,22 @@ def run(arguments, timeout=45):
     return result
 
 
+def stress_workers(executable):
+    import psutil
+    parent = psutil.Process()
+    with tempfile.TemporaryDirectory(prefix="syspulse-worker-") as temporary:
+        for kind in ("cpu", "memory"):
+            folder = Path(temporary) / kind
+            folder.mkdir()
+            (folder / "request.json").write_text(json.dumps({"kind": kind, "duration_s": 2, "workers": 1,
+                "intensity": 10, "memory_mb": 16, "parent_pid": parent.pid,
+                "parent_created": parent.create_time()}), encoding="utf-8")
+            run([executable, "--stress-worker", folder], timeout=30)
+            result = json.loads((folder / "result.json").read_text(encoding="utf-8"))
+            if result.get("state") != "completed" or result.get("errors") != 0 or not result.get("checks"):
+                raise ValueError("O teste empacotado de " + kind + " não concluiu corretamente.")
+
+
 def windows(output):
     installer = output / f"SysPulse-{VERSION}-Windows-x64-Setup.exe"
     portable = output / f"SysPulse-{VERSION}-Windows-x64-Portable.zip"
@@ -32,6 +48,7 @@ def windows(output):
         if not required.issubset(archive.namelist()):
             raise ValueError("ZIP incompleto.")
     run([ROOT / "dist/SysPulse/SysPulse.exe", "--smoke-test"])
+    stress_workers(ROOT / "dist/SysPulse/SysPulse.exe")
     import winreg
     key = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{5385F142-031A-4928-9569-760BA8FC6783}_is1"
     try:
@@ -63,6 +80,7 @@ def linux(output, architecture):
         destination = Path(folder) / "Pasta de teste" / "SysPulse"
         run(["sh", installer, "--prefix", destination, "--yes", "--no-launch", "--no-desktop"], timeout=120)
         run([destination / "SysPulse", "--smoke-test"])
+        stress_workers(destination / "SysPulse")
         run(["sh", destination / "uninstall.sh", "--yes"])
         if destination.exists():
             raise ValueError("Pasta de instalação permaneceu após remover.")
@@ -78,6 +96,7 @@ def macos(output, architecture):
         run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount, image])
         try:
             run([mount / "SysPulse.app/Contents/MacOS/SysPulse", "--smoke-test"])
+            stress_workers(mount / "SysPulse.app/Contents/MacOS/SysPulse")
         finally:
             run(["hdiutil", "detach", mount])
     return {"smoke": True, "dmg": True, "pkg_payload": True}

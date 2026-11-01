@@ -1,10 +1,12 @@
+from modules.version import VERSION
+
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
 
 
 class SetupDialog(QDialog):
     def __init__(self, parent=None, selected="integrated"):
         super().__init__(parent)
-        self.setWindowTitle("Começar no SysPulse 3.0")
+        self.setWindowTitle(f"Começar no SysPulse {VERSION}")
         self.setMinimumWidth(540)
         layout = QVBoxLayout(self)
         text = QLabel("Escolha como complementar a análise. A coleta e a explicação integrada funcionam sem IA, conta ou download. "
