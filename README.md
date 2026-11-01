@@ -245,7 +245,7 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 - modules/ai_service.py e ai_contract.py separam transporte, resumo e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A suíte Windows passou com 144 testes. O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
+A suíte Windows passou com 144 testes; Linux e macOS passaram com 143 e um teste exclusivo de Windows não aplicável. Os quatro pacotes nativos passaram nas verificações de instalação/abertura descritas na [validação 3.0](docs/validacao-3.0.md). O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem.
 
 Veja [validação 3.0](docs/validacao-3.0.md), [validação anterior de coleta](docs/validacao-2.3.md), [histórico](CHANGELOG.md) e [revisão que orientou as melhorias](docs/revisao-produto-desempenho.md). As análises técnicas anteriores estão preservadas como histórico.
 

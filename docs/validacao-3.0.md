@@ -49,7 +49,20 @@ Essas medições são da base 2.3 anterior às telas de instalação e gerenciam
 
 O build Windows gera Setup.exe, ZIP portátil e SHA-256. O teste de instalação verifica uma pasta personalizada com espaços, abertura do executável, presença do desinstalador e remoção do aplicativo.
 
-Os builds Linux e macOS precisam ocorrer nesses sistemas. O workflow do GitHub testa a suíte e o pacote em Windows x64, Ubuntu 22.04 x64, macOS 15 Apple Silicon e macOS Intel. A publicação por tag depende da aprovação dos quatro jobs.
+A rodada nativa [41321815318](https://github.com/Kennedh/sys-pulse/actions/runs/41321815318), no commit 3ad5c1e, concluiu com sucesso nos quatro sistemas:
+
+| Ambiente | Testes | Pacote verificado |
+|---|---|---|
+| Windows Server 2022 x64 | 144 passaram | ZIP íntegro, Setup em pasta com espaços, abertura e desinstalação |
+| Ubuntu 22.04 x64 | 143 passaram, um exclusivo de Windows não aplicável | Setup.run, abertura e desinstalação em pasta com espaços |
+| macOS 15 Apple Silicon | 143 passaram, um exclusivo de Windows não aplicável | Payload do PKG e abertura do aplicativo dentro do DMG |
+| macOS 15 Intel | 143 passaram, um exclusivo de Windows não aplicável | Payload do PKG e abertura do aplicativo dentro do DMG |
+
+O teste Windows local também passou na instalação, abertura e remoção em pasta personalizada. Os pacotes de CI usaram Python 3.13.17 e Qt/PySide6 6.12.0; os testes locais de modelos usaram o ambiente Python desta máquina.
+
+A primeira rodada detectou incompatibilidade de PSModulePath ao iniciar Windows PowerShell a partir do runner PowerShell 7 e limpeza inadequada dos widgets Qt no encerramento dos testes Linux. O ambiente do subprocesso e a destruição dos widgets de teste foram corrigidos. A rodada acima confirmou encerramento normal, sem ignorar códigos de erro.
+
+Os builds Linux e macOS ocorreram nesses sistemas. O workflow do GitHub testa a suíte e o pacote em Windows x64, Ubuntu 22.04 x64, macOS 15 Apple Silicon e macOS Intel. A publicação por tag depende da aprovação dos quatro jobs.
 
 A validação do Linux instala o .run em uma pasta temporária personalizada, abre o aplicativo e executa a desinstalação. A do macOS verifica o payload do PKG e abre o aplicativo no DMG montado somente para leitura. Isso não equivale a instalar e usar todos os recursos em toda versão de cada sistema.
 
