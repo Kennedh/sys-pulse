@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
     QFileDialog, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QLineEdit, QPlainTextEdit, QMessageBox, QAbstractItemView, QToolTip)
 
+from modules.ai_summary import AISummaryPanel
+from modules.advanced_analysis import readable_report
 from modules.analysis import (analyze_session, save_report, report_text, ranked_processes,
                               display_time, fmt, AnalysisCancelled)
 
@@ -158,6 +160,9 @@ class AnalysisPanel(QWidget):
         layout.addWidget(self.chart)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
+        self.explanation = QPlainTextEdit()
+        self.explanation.setReadOnly(True)
+        self.tabs.addTab(self.explanation, "Entenda o resultado")
         overview = QWidget()
         overview_layout = QVBoxLayout(overview)
         self.resource_table = table(["Recurso", "Média", "Pico", "Horário do pico", "Carga alta¹", "Processo observado no pico²"])
@@ -202,12 +207,24 @@ class AnalysisPanel(QWidget):
         self.event_note = QLabel("Sem marcações. O resumo da sessão inteira continua disponível.")
         self.event_note.setWordWrap(True)
         event_layout.addWidget(self.event_note)
-        self.event_table = table(["Recurso", "Pico antes (−5 s)", "Pico depois (+5 s)", "Processo observado na janela"])
+        self.event_table = table(["Recurso", "Pico antes (−5 s)", "Pico depois (+5 s)", "Carga alta na janela", "Carga alta fora das marcações", "Processo observado na janela"])
         event_layout.addWidget(self.event_table)
         self.tabs.addTab(events, "Marcações")
+        triage = QWidget()
+        triage_layout = QVBoxLayout(triage)
+        self.triage_text = QPlainTextEdit()
+        self.triage_text.setReadOnly(True)
+        triage_layout.addWidget(self.triage_text, 1)
+        self.pressure_table = table(["Recurso", "P95", "Tempo alto observado", "Maior sequência", "Cobertura observada"])
+        triage_layout.addWidget(self.pressure_table, 1)
+        self.tabs.addTab(triage, "Triagem")
+        self.sensor_table = table(["Dispositivo / métrica", "Unidade", "Mínimo", "Média", "Máximo", "Leituras"])
+        self.tabs.addTab(self.sensor_table, "Sensores e discos")
         self.report = QPlainTextEdit()
         self.report.setReadOnly(True)
         self.tabs.addTab(self.report, "Relatório e limites")
+        self.ai = AISummaryPanel()
+        self.tabs.addTab(self.ai, "IA opcional")
         footer = QLabel("Médias das leituras disponíveis • CPU por processo normalizada pelo total de CPUs lógicas • N/D = dado indisponível")
         footer.setWordWrap(True)
         footer.setObjectName("muted")
@@ -319,6 +336,7 @@ class AnalysisPanel(QWidget):
         pressure = [r["name"] for r in summary["resources"] if r["high_count"]]
         evidence = ("Carga alta registrada: " + ", ".join(pressure) + ". Investigue os horários e marcações." if pressure else
                     "Sem leituras acima dos critérios disponíveis. Isso não descarta pausas curtas ou problemas de apresentação dos quadros.")
+        evidence = result.get("explanation", {}).get("summary", evidence)
         self.insight.setText(evidence + "\n¹ Leituras acima do critério / leituras válidas. ² Processo observado perto do pico; não comprova causa.")
         self.show_processes()
         self.event_picker.blockSignals(True)
@@ -328,7 +346,25 @@ class AnalysisPanel(QWidget):
             self.event_picker.addItem(f"#{m['id']} · {display_time(m['timestamp'])} · {m['note']}")
         self.event_picker.blockSignals(False)
         self.show_event()
+        assessment = summary.get("assessment", {})
+        findings = assessment.get("findings", [])
+        lines = []
+        for finding in findings:
+            lines += [finding["title"], finding["evidence"], finding["action"], ""]
+        if not findings:
+            lines.append("Sem alerta nos critérios disponíveis. Isso não descarta problemas não capturados.")
+        lines += [assessment.get("method", "")]
+        self.triage_text.setPlainText("\n".join(lines))
+        fill(self.pressure_table, [[r["name"], fmt(r["p95"], "%"),
+                                   fmt(r["high_seconds"], " s") if r["count"] else "N/D",
+                                   fmt(r["longest_high_s"], " s") if r["count"] else "N/D",
+                                   fmt(r["covered_seconds"], " s") if r["count"] else "N/D"]
+                                  for r in assessment.get("resources", [])])
+        fill(self.sensor_table, [[r["name"], r["unit"], fmt(r["min"]), fmt(r["mean"]), fmt(r["max"]), r["count"]]
+                                for r in assessment.get("telemetry", [])])
         self.report.setPlainText(report_text(result))
+        self.explanation.setPlainText(readable_report(result, "ENTENDA O RESULTADO"))
+        self.ai.set_result(result)
 
     def show_processes(self, *_):
         if not self.result:
@@ -361,10 +397,21 @@ class AnalysisPanel(QWidget):
         coverage = event["coverage"]
         self.event_note.setText(f"Janela em torno do atalho · cobertura {fmt(coverage[0], ' s')} a +{fmt(coverage[1], ' s')} · "
                                f"{event['analysis']['samples']} amostras. O atalho registra sua percepção, não o início exato da pausa.")
+        windows = self.result.get("symptoms", {}).get("windows", [])
+        index = self.event_picker.currentIndex()
+        if index < len(windows):
+            window = windows[index]
+            if window["partial"]:
+                self.event_note.setText(self.event_note.text() + " Cobertura parcial.")
+            if window["gaps"]:
+                self.event_note.setText(self.event_note.text() + f" {window['gaps']} lacuna(s) de coleta nesta janela.")
+        baseline = {r["key"]: r for r in self.result.get("symptoms", {}).get("resources", [])}
         rows = []
         for pre, post, r in zip(event["before"], event["after"], event["analysis"]["resources"]):
             p = r.get("process")
-            rows.append([r["name"], fmt(pre["peak"], "%"), fmt(post["peak"], "%"),
+            outside = baseline.get(r["key"], {}).get("outside_high_percent")
+            high = f"{r['high_count']}/{r['count']} ≥{r['threshold']}%" if r["count"] else "N/D"
+            rows.append([r["name"], fmt(pre["peak"], "%"), fmt(post["peak"], "%"), high, fmt(outside, "%"),
                          f"{p['name']} · PID {p['pid']}" if p else "N/D"])
         fill(self.event_table, rows)
 
@@ -381,6 +428,7 @@ class AnalysisPanel(QWidget):
                 QMessageBox.warning(self, "Falha ao exportar", str(error))
 
     def shutdown(self):
+        self.ai.shutdown()
         self._generation += 1
         self._cancel.set()
         for thread in self._jobs:

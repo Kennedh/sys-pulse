@@ -15,6 +15,9 @@ from modules.diagnostics import SessionRecorder
 from modules.diagnostic_view import DiagnosticPanel, fmt
 from modules.hotkey import GlobalHotkey
 from modules.analysis_view import AnalysisPanel
+from modules.inspection import InspectionService
+from modules.inspection_view import InspectionPanel
+from modules.advanced_view import AdvancedPanel
 
 
 STYLE = """
@@ -85,11 +88,12 @@ class ProcessTableModel(QAbstractTableModel):
 class App(QMainWindow):
     recording_status = Signal(dict)
     hardware_ready = Signal(str)
+    inventory_ready = Signal(dict)
 
     def __init__(self, demo=False):
         super().__init__()
         self.demo = demo
-        self.setWindowTitle("SYS-PULSE 2.0 — Monitoramento e análise" + (" — DADOS SIMULADOS" if demo else ""))
+        self.setWindowTitle("SYS-PULSE 2.2 — Monitoramento e análise" + (" — DADOS SIMULADOS" if demo else ""))
         self.resize(1340, 900)
         self.setMinimumSize(1080, 740)
         self.setStyleSheet(STYLE)
@@ -97,6 +101,7 @@ class App(QMainWindow):
         self._last_sample = self._last_processes = None
         self._last_paint = 0
         self._hardware_loaded = False
+        self._inventory = None
         self._last_marker = 0
         central = QWidget()
         self.setCentralWidget(central)
@@ -107,7 +112,7 @@ class App(QMainWindow):
         logo = QLabel("SYS-PULSE")
         logo.setObjectName("title")
         navigation.addWidget(logo)
-        navigation.addWidget(QLabel("Performance sob análise\nv2.0.0"))
+        navigation.addWidget(QLabel("Performance sob análise\nv2.2.0"))
         self.pages = QStackedWidget()
         layout.addWidget(sidebar)
         layout.addWidget(self.pages, 1)
@@ -147,8 +152,15 @@ class App(QMainWindow):
         self.pages.addWidget(diagnostic_scroll)
         self.analysis = AnalysisPanel()
         self.pages.addWidget(self.analysis)
+        self.inspection = InspectionPanel()
+        self.pages.addWidget(self.inspection)
+        self.inspection_service = InspectionService(self.inventory_ready.emit)
+        self.inventory_ready.connect(self.on_inventory)
+        self.inspection.refresh_requested.connect(self.refresh_inventory)
+        self.advanced = AdvancedPanel(demo=demo)
+        self.pages.addWidget(self.advanced)
         self.nav_buttons = []
-        for index, name in enumerate(("HARDWARE", "LIVE MONITOR", "REDE", "CAPTURA", "ANÁLISE")):
+        for index, name in enumerate(("HARDWARE", "LIVE MONITOR", "REDE", "CAPTURA", "ANÁLISE", "DRIVERS E SAÚDE", "AVANÇADO")):
             button = QPushButton(name)
             button.setObjectName("navigation")
             button.setCheckable(True)
@@ -182,7 +194,7 @@ class App(QMainWindow):
                 self.diagnostic.chart.markers.append(event["monotonic"])
                 self.diagnostic.events.appendPlainText(f"#{event['id']} · {event['timestamp']}\n{event['note']}")
         else:
-            self.worker_monitor = MonitorWorker(self.recorder.submit)
+            self.worker_monitor = MonitorWorker(self.submit_sample)
         self.diagnostic.start_requested.connect(lambda options: self.send_command("start", options))
         self.diagnostic.stop_requested.connect(lambda: self.send_command("stop"))
         self.diagnostic.mark_requested.connect(self.mark_stutter)
@@ -212,11 +224,41 @@ class App(QMainWindow):
         self.timer.start()
         QApplication.instance().aboutToQuit.connect(self.shutdown)
         self.worker_monitor.start()
+        if demo:
+            from modules.demo import demo_inventory, demo_advanced
+            self.advanced.accept_result(0, demo_advanced())
+            self.on_inventory(demo_inventory())
+            self.inspection.refresh_button.setEnabled(False)
+        else:
+            self.refresh_inventory()
         self.show_page(3)
         if demo:
             self.analyze_capture(str(Path(__file__).parent / "examples" / "sessao-demo"))
 
+    def submit_sample(self, sample):
+        self.recorder.submit(sample)
+        self.advanced.submit(sample)
+
+    def refresh_inventory(self):
+        if self.inspection_service.refresh():
+            self.inspection.refresh_button.setEnabled(False)
+            self.inspection.status.setText("Consultando o Windows… até 45 s; monitoramento continua ativo.")
+
+    def on_inventory(self, snapshot):
+        if self._closed:
+            return
+        self._inventory = snapshot
+        self.advanced.inventory = snapshot
+        if self.advanced.recorder.active.is_set():
+            self.advanced.recorder.command("inventory", snapshot)
+        self.inspection.set_snapshot(snapshot)
+        if self.recorder.active.is_set():
+            if not self.recorder.command("inventory", snapshot):
+                self.inspection.status.setText("Inventário disponível na tela; fila cheia impediu anexar à captura.")
+
     def on_recording_status(self, status):
+        if status.get("started") and self._inventory:
+            self.on_inventory(self._inventory)
         if status.get("completed") and status.get("count") and not self._closed:
             self.analyze_capture(status["path"], auto_save=True)
 
@@ -243,11 +285,15 @@ class App(QMainWindow):
             self.hardware_ready.emit(report)
 
     def send_command(self, kind, payload=None):
+        if kind == "start":
+            payload = {**payload, "inventory": self._inventory}
+            self.refresh_inventory()
         if not self.recorder.command(kind, payload):
             self.diagnostic.set_status({"active": self.recorder.active.is_set(), "path": str(self.recorder.path or ""),
                                         "message": "Gravador ocupado. Tente novamente; o comando não foi registrado.", "error": True})
 
     def mark_stutter(self):
+        self.advanced.mark()
         now = time.monotonic()
         if not self.recorder.active.is_set() or now - self._last_marker < 0.5:
             return
@@ -296,7 +342,8 @@ class App(QMainWindow):
         lines += ["", "ATIVIDADE DOS DISCOS"]
         for disk in sample["disks"]:
             lines.append(f"{disk['name']}: leitura {fmt(disk['read_mbs'], ' MiB/s')} | escrita {fmt(disk['write_mbs'], ' MiB/s')} | "
-                         f"atividade {fmt(disk['active_percent'], '%')} | latência R/W {fmt(disk['read_ms'])}/{fmt(disk['write_ms'])} ms/op")
+                         f"atividade {fmt(disk['active_percent'], '%')} | latência R/W {fmt(disk['read_ms'])}/{fmt(disk['write_ms'])} ms/op | "
+                         f"fila {fmt(disk.get('queue'))} | IOPS R/W {fmt(disk.get('read_iops'))}/{fmt(disk.get('write_iops'))}")
         lines += ["", "ESPAÇO DAS PARTIÇÕES (atualização a cada 30 s)"]
         for disk in sample["storage_percent"]:
             lines.append(f"{disk['disco']}: {fmt(disk['percent'], '%')} ocupado | livre {fmt(disk['free'], ' GiB')} / {fmt(disk['total'], ' GiB')}")
@@ -338,4 +385,6 @@ class App(QMainWindow):
         self.worker_monitor.stop()
         self.recorder.shutdown()
         self.analysis.shutdown()
+        self.advanced.shutdown()
+        self.inspection_service.stop()
         self.tray.hide()

@@ -1,4 +1,3 @@
-"""Generate real Qt screenshots using clearly labelled synthetic demo data."""
 import os
 import sys
 import time
@@ -33,10 +32,13 @@ def main():
         while window.analysis.result is None and time.monotonic() < deadline:
             pump(application)
         assert window.analysis.result, window.analysis.status.text()
-        for filename, page, tab in (("analise.png", 4, 0), ("processos.png", 4, 1),
-                                    ("marcacoes.png", 4, 2), ("captura.png", 3, 0)):
+        for filename, page, tab in (("analise.png", 4, 1), ("explicacao.png", 4, 0), ("processos.png", 4, 2),
+                                    ("marcacoes.png", 4, 3), ("captura.png", 3, 0), ("triagem.png", 4, 4),
+                                    ("sensores.png", 4, 5), ("drivers.png", 5, 0), ("avancado.png", 6, 0), ("ia-opcional.png", 6, 3)):
             window.show_page(page)
             window.analysis.tabs.setCurrentIndex(tab)
+            if page == 6:
+                window.advanced.tabs.setCurrentIndex(tab)
             if filename == "marcacoes.png":
                 window.analysis.event_picker.setCurrentIndex(1)
             pump(application)

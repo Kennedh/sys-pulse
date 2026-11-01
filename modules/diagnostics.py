@@ -62,7 +62,9 @@ def event_summary(event, samples):
     processes = {}
     for sample in selected:
         for process in sample.get("processes", []):
-            key = (process["pid"], process["name"])
+            key = (process["pid"], process["name"], process.get("created"))
+            if process.get("cpu_percent") is None:
+                continue
             if key not in processes or process["cpu_percent"] > processes[key]["cpu_percent"]:
                 processes[key] = process
     return {"event": event, "before": before, "after": after, "evidence": evidence,
@@ -123,11 +125,12 @@ class SessionRecorder:
         self.csv.writeheader()
         self.marker_csv = csv.DictWriter(self.marks, fieldnames=["id", "timestamp", "monotonic", "note"])
         self.marker_csv.writeheader()
-        metadata = {"schema_version": 2, "app_version": "2.0.0", "started": datetime.now().astimezone().isoformat(),
+        metadata = {"schema_version": 2, "app_version": "2.2.0", "started": datetime.now().astimezone().isoformat(),
                     "system": platform.platform(), "python": platform.python_version(),
                     "interval_ms": options.get("interval_ms", 500), "window_seconds": 5,
                     "max_raw_bytes": self.max_bytes, "max_hours": 2}
         self.metadata = metadata
+        self._inventory(options.get("inventory"))
         (self.path / "sessao.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         self.report.write("SYS-PULSE — INVESTIGAÇÃO DE TRAVAMENTOS\n\n"
                           "Os indícios abaixo são correlações, não uma conclusão sobre defeitos.\n"
@@ -143,7 +146,15 @@ class SessionRecorder:
         self.started = self.flushed = time.monotonic()
         self.peaks = {}
         self.active.set()
-        self._notify("Gravação iniciada", count=0)
+        self._notify("Gravação iniciada", count=0, started=True)
+
+    def _inventory(self, snapshot):
+        if not snapshot or not self.path:
+            return
+        target = self.path / "inventario.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        temporary.replace(target)
 
     def _sample(self, sample):
         sample = dict(sample)
@@ -152,8 +163,8 @@ class SessionRecorder:
         for field in ("cpu_percent", "ram_percent", "io_total_mbs", "gpu_percent"):
             selected += sorted((p for p in processes if p.get(field) is not None),
                                key=lambda p: p[field], reverse=True)[:10]
-        sample["processes"] = list({(p["pid"], p["name"]): p for p in selected}.values())
-        sample["process_selection"] = "top 10 CPU + RAM + I/O + GPU; CPU normalizada; atualização de 2 s"
+        sample["processes"] = list({(p["pid"], p["name"], p.get("created")): p for p in selected}.values())
+        sample["process_selection"] = "top 10 CPU + RAM + I/O + GPU; CPU normalizada; intervalo mínimo de 2 s; varredura em segundo plano"
         line = json.dumps(sample, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
         self.raw.write(line)
         self.raw_bytes += len(line.encode("utf-8"))
@@ -239,6 +250,8 @@ class SessionRecorder:
             try:
                 if kind == "start":
                     self._start(payload)
+                elif kind == "inventory" and self.active.is_set():
+                    self._inventory(payload)
                 elif kind == "stop":
                     self._stop()
                 elif kind == "sample" and self.active.is_set():

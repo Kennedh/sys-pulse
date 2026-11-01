@@ -121,9 +121,9 @@ def test_cancel_and_export_round_trip(tmp_path):
         analyze_session(path, lambda: True)
     result = analyze_session(path)
     save_report(result, tmp_path / "report")
-    loaded = json.loads((tmp_path / "report/analise.json").read_text())
+    loaded = json.loads((tmp_path / "report/analise.json").read_text(encoding="utf-8"))
     assert loaded["summary"] == result["summary"]
-    assert "process-1" in (tmp_path / "report/analise.txt").read_text()
+    assert "process-1" in (tmp_path / "report/analise.txt").read_text(encoding="utf-8")
 
 
 def test_process_io_rate_warmup_reset_unsupported_and_interval():

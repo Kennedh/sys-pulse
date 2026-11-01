@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "demo": true,
+  "collected_at": "2026-01-15T14:30:00-03:00",
+  "system": "Windows",
+  "sections": {
+    "devices": {
+      "status": "ok",
+      "rows": [
+        {
+          "DeviceID": "DEMO_GPU",
+          "Name": "GPU de demonstração",
+          "ConfigManagerErrorCode": 0,
+          "Present": true
+        },
+        {
+          "DeviceID": "DEMO_WIFI",
+          "Name": "Wi-Fi de demonstração",
+          "ConfigManagerErrorCode": 22,
+          "Present": true
+        },
+        {
+          "DeviceID": "DEMO_USB",
+          "Name": "USB de demonstração",
+          "ConfigManagerErrorCode": 28,
+          "Present": true
+        }
+      ]
+    },
+    "drivers": {
+      "status": "ok",
+      "rows": [
+        {
+          "DeviceID": "DEMO_GPU",
+          "DeviceName": "GPU de demonstração",
+          "DeviceClass": "DISPLAY",
+          "DriverProviderName": "Fornecedor simulado",
+          "DriverVersion": "1.0.0",
+          "DriverDate": "2026-01-01",
+          "IsSigned": true
+        },
+        {
+          "DeviceID": "DEMO_WIFI",
+          "DeviceClass": "NET",
+          "DriverVersion": "2.0.0",
+          "IsSigned": true
+        }
+      ]
+    },
+    "storage": {
+      "status": "ok",
+      "rows": [
+        {
+          "DeviceId": "0",
+          "FriendlyName": "SSD de demonstração",
+          "HealthStatus": "Healthy",
+          "OperationalStatus": "OK",
+          "Reliability": {
+            "Temperature": 40,
+            "Wear": 2,
+            "PowerOnHours": 1200,
+            "ReadErrorsUncorrected": 0,
+            "WriteErrorsUncorrected": 0
+          }
+        }
+      ]
+    },
+    "events": {
+      "status": "ok",
+      "rows": []
+    }
+  }
+}

@@ -79,6 +79,9 @@ class SensorService:
         self.nvml_status = "NVIDIA: inicializando"
 
     def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
         self._thread = threading.Thread(target=self.run, name="sys-pulse-sensors", daemon=True)
         self._thread.start()
 
@@ -90,7 +93,9 @@ class SensorService:
     def snapshot(self):
         with self._lock:
             data = dict(self._data)
-        age = time.monotonic() - data.pop("sensor_at", 0)
+        sampled_at = data.pop("sensor_at", None)
+        data["sensor_sample_monotonic"] = sampled_at
+        age = time.monotonic() - (sampled_at or 0)
         data["sensor_age_ms"] = age * 1000 if data else None
         if age > 4:
             data.update(gpus=[], sensors=[], cpu_temperature=None, cpu_freq_mhz=None,

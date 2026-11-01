@@ -1,7 +1,57 @@
+# Python
 __pycache__/
 *.py[cod]
-.venv/
-.idea/
+.venv*/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Testes e análise de código
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Configuração local
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Capturas e análises locais do SysPulse
 diagnosticos/
 sessao-*/
+avancado-*/
+analise-etl-*/
+*.etl
+*.etl.*
+*.pdb
+
+# Sessão simulada distribuída com o projeto
+!examples/sessao-demo/
+
+# Logs e temporários
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+Desktop.ini

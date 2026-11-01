@@ -1,4 +1,3 @@
-"""Explicit synthetic data for documentation; never used in real captures."""
 import csv
 import json
 import math
@@ -70,7 +69,8 @@ def write_demo_session(destination):
         writer = csv.DictWriter(file, ["id", "timestamp", "monotonic", "note"])
         writer.writeheader()
         writer.writerows(demo_markers(samples))
-    (path / "sessao.json").write_text(json.dumps({"schema_version": 2, "app_version": "2.0.0", "demo": True,
+    (path / "inventario.json").write_text(json.dumps(demo_inventory(), ensure_ascii=False, indent=2), encoding="utf-8")
+    (path / "sessao.json").write_text(json.dumps({"schema_version": 2, "app_version": "2.2.0", "demo": True,
         "started": samples[0]["timestamp"], "ended": samples[-1]["timestamp"], "interval_ms": 500,
         "count": len(samples), "dropped": 0}, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -91,3 +91,29 @@ class DemoMonitor:
 
     def stop(self):
         pass
+
+
+def demo_inventory():
+    return {"schema_version": 1, "demo": True, "collected_at": "2026-01-15T14:30:00-03:00", "system": "Windows",
+            "sections": {
+                "devices": {"status": "ok", "rows": [
+                    {"DeviceID": "DEMO_GPU", "Name": "GPU de demonstração", "ConfigManagerErrorCode": 0, "Present": True},
+                    {"DeviceID": "DEMO_WIFI", "Name": "Wi-Fi de demonstração", "ConfigManagerErrorCode": 22, "Present": True},
+                    {"DeviceID": "DEMO_USB", "Name": "USB de demonstração", "ConfigManagerErrorCode": 28, "Present": True}]},
+                "drivers": {"status": "ok", "rows": [
+                    {"DeviceID": "DEMO_GPU", "DeviceName": "GPU de demonstração", "DeviceClass": "DISPLAY",
+                     "DriverProviderName": "Fornecedor simulado", "DriverVersion": "1.0.0", "DriverDate": "2026-01-01", "IsSigned": True},
+                    {"DeviceID": "DEMO_WIFI", "DeviceClass": "NET", "DriverVersion": "2.0.0", "IsSigned": True}]},
+                "storage": {"status": "ok", "rows": [{"DeviceId": "0", "FriendlyName": "SSD de demonstração",
+                    "HealthStatus": "Healthy", "OperationalStatus": "OK", "Reliability": {"Temperature": 40,
+                    "Wear": 2, "PowerOnHours": 1200, "ReadErrorsUncorrected": 0, "WriteErrorsUncorrected": 0}}]},
+                "events": {"status": "ok", "rows": []}}}
+
+
+def demo_advanced():
+    from modules.advanced_analysis import parse_dpc_report, explain_capture
+    source = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "dpc-isr-simulado.txt"
+    result = parse_dpc_report(source.read_text(encoding="utf-8"))
+    result.update(demo=True, quality={"lost_events": 0}, engine="DADOS SIMULADOS", source="Demonstração")
+    result["explanation"] = explain_capture(result)
+    return result

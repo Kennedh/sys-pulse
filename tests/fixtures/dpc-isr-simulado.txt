@@ -1,0 +1,29 @@
+DADOS SIMULADOS — fixture de parser, não é uma medição real.
+DPC Info
+CPU Usage Summing By Module For the Whole Trace
+CPU Usage from 0 us to 10000000 us:
+CPU 0 Usage, CPU 1 Usage,
+usec %, usec %, Module
+9000 0.09, 3000 0.03, "rede-demo.sys"
+2000 0.02, 0 0.00, "Unknown"
+Total = 6
+Total = 4 for module "rede-demo.sys"
+Elapsed Time, > 0 usecs AND <= 128 usecs, 2, or 50.00%
+Elapsed Time, > 128 usecs AND <= 8192 usecs, 2, or 50.00%
+Total, 4
+Total = 2 for module "Unknown"
+Elapsed Time, > 512 usecs AND <= 1024 usecs, 2, or 100.00%
+Total, 2
+All Module = 6, Total = 6, EQUAL
+Usage From 0 ms to 10000 ms, Summing In 1 second intervals. Intervals=10
+Start (ms) End (ms), (usec) %, (usec) %
+0-1000 :, 4000 0.40, 2000 0.20
+Interrupt Info
+CPU Usage Summing By Module For the Whole Trace
+CPU Usage from 0 us to 10000000 us:
+usec %, usec %, Module
+200 0.00, 100 0.00, "rede-demo.sys"
+Total = 2
+Total = 2 for module "rede-demo.sys"
+Elapsed Time, > 128 usecs AND <= 256 usecs, 2, or 100.00%
+Total, 2

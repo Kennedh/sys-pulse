@@ -1,0 +1,4 @@
+id,timestamp,monotonic,note
+1,2026-01-15T14:30:35.000-03:00,10035.0,Pausa percebida — exemplo de CPU
+2,2026-01-15T14:30:50.000-03:00,10050.0,Leitura/escrita — exemplo de I/O
+3,2026-01-15T14:31:05.000-03:00,10065.0,Cena exigente — exemplo de GPU

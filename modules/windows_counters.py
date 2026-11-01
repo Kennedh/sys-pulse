@@ -5,7 +5,7 @@ import re
 
 
 def gpu_process_usage(items):
-    """Busiest engine per PID, never sum independent engines into >100%."""
+    # Engines simultâneos não devem ser somados.
     result = {}
     for name, value in items:
         match = re.search(r"(?:^|_)pid_(\d+)_", name or "")

@@ -1,4 +1,3 @@
-"""Streaming analysis of native SysPulse sessions. No hardware diagnosis is inferred."""
 import bisect
 import csv
 import io
@@ -9,6 +8,11 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from modules.advanced_analysis import explain_capture, readable_report
+from modules.assessment import Assessment
+from modules.inspection import inspection_text
+from modules.incidents import compare_markers
+
 
 RESOURCE_SPECS = (
     ("cpu", "CPU total", 90, "cpu_percent"),
@@ -17,6 +21,7 @@ RESOURCE_SPECS = (
     ("gpu", "GPU mais ocupada", 95, "gpu_percent"),
     ("vram", "Memória da GPU", 90, None),
     ("disk", "Disco mais ativo", 90, "io_total_mbs"),
+    ("dpc", "Tempo de CPU em DPC", 5, None),
 )
 PROCESS_FIELDS = ("cpu_percent", "rss_mb", "ram_percent", "io_read_mbs", "io_write_mbs",
                   "io_total_mbs", "gpu_percent")
@@ -63,7 +68,10 @@ def fmt(value, suffix="", digits=1):
 
 
 def process_rows(sample):
-    if not number(sample.get("process_age_ms")) or sample["process_age_ms"] > 4000:
+    if not number(sample.get("process_age_ms")) or not 0 <= sample["process_age_ms"] <= 4000:
+        return []
+    batch = sample.get("process_sample_monotonic")
+    if number(batch) and batch > sample["monotonic"]:
         return []
     result = []
     for p in sample.get("processes", []):
@@ -77,14 +85,15 @@ def process_rows(sample):
 
 def resource_values(sample):
     values = {"cpu": clean(sample.get("cpu_percent")), "core": clean(sample.get("cpu_max_core")),
-              "ram": clean(sample.get("ram_percent")), "gpu": None, "vram": None, "disk": None}
+              "ram": clean(sample.get("ram_percent")), "gpu": None, "vram": None, "disk": None,
+              "dpc": clean(sample.get("dpc_percent"))}
     devices = {"cpu": "Todos os núcleos", "core": "Núcleo lógico", "ram": "RAM do sistema"}
     cores = sample.get("cpu_cores", [])
     valid_cores = [(i, v) for i, v in enumerate(cores) if clean(v) is not None]
     if valid_cores:
         devices["core"] = f"CPU lógica {max(valid_cores, key=lambda item: item[1])[0]}"
     sensor_age = sample.get("sensor_age_ms")
-    gpus = [] if number(sensor_age) and sensor_age > 4000 else sample.get("gpus", [])
+    gpus = [] if number(sensor_age) and not 0 <= sensor_age <= 4000 else sample.get("gpus", [])
     for gpu in gpus:
         load = clean(gpu.get("percent"))
         used, total = clean(gpu.get("memory_used_mb")), clean(gpu.get("memory_total_mb"))
@@ -124,7 +133,9 @@ class Stat:
 
 
 class Accumulator:
-    def __init__(self, chart=False):
+    def __init__(self, chart=False, process_context=True):
+        self.assessment = Assessment() if chart else None
+        self.process_context = process_context
         self.stats = {key: Stat() for key, *_ in RESOURCE_SPECS}
         self.peak_details = {}
         self.processes = {}
@@ -133,25 +144,54 @@ class Accumulator:
         self.first = self.last = self.first_at = self.last_at = None
         self.points = [] if chart else None
         self.min_available = None
+        self.collection_gaps = 0
+        self.max_gap_ms = None
+        self.target_interval_ms = None
+        self.collector = Stat()
+        self.expensive_samples = 0
+        self.process_error_samples = 0
+        self.sensor_batch = None
 
     def add(self, sample):
         at, stamp = sample["monotonic"], sample["timestamp"]
         self.count += 1
         if self.first is None:
             self.first, self.first_at = at, stamp
+        target = clean(sample.get("target_interval_ms"))
+        self.target_interval_ms = target
+        if self.last is not None:
+            gap_ms = (at - self.last) * 1000
+            self.max_gap_ms = max(self.max_gap_ms or 0, gap_ms)
+            if target and gap_ms > 2 * target:
+                self.collection_gaps += 1
         self.last, self.last_at = at, stamp
+        if sample.get("process_status"):
+            self.process_error_samples += 1
+        cost = clean(sample.get("collector_ms"))
+        self.collector.add(cost, stamp)
+        if cost is not None and target and cost >= target:
+            self.expensive_samples += 1
         values, devices = resource_values(sample)
-        processes = process_rows(sample)
+        if self.assessment is not None:
+            self.assessment.add(sample, values, devices)
+        processes = process_rows(sample) if self.process_context else []
         available = clean(sample.get("ram_available_gb"))
         if available is not None:
             self.min_available = min(available, self.min_available if self.min_available is not None else available)
+        sensor_batch = sample.get("sensor_sample_monotonic")
+        age = sample.get("sensor_age_ms")
+        if not number(sensor_batch) and number(age):
+            sensor_batch = round(at - age / 1000, 3)
         for key, _, threshold, process_field in RESOURCE_SPECS:
+            if key in ("gpu", "vram") and number(sensor_batch) and sensor_batch == self.sensor_batch:
+                continue
             if self.stats[key].add(values[key], stamp, threshold):
                 candidates = [p for p in processes if process_field and clean(p.get(process_field)) is not None
                               and p[process_field] > 0]
                 leader = max(candidates, key=lambda p: p[process_field]) if candidates else None
                 self.peak_details[key] = {"device": devices.get(key), "process": leader,
                                           "process_age_ms": clean(sample.get("process_age_ms"))}
+        self.sensor_batch = sensor_batch
         interval, target = clean(sample.get("interval_ms")), clean(sample.get("target_interval_ms"))
         if interval is not None and target and interval > 2 * target:
             self.late += 1
@@ -175,7 +215,6 @@ class Accumulator:
         resources = [{"key": key, "name": label, "threshold": threshold,
                       **self.stats[key].result(), **self.peak_details.get(key, {})}
                      for key, label, threshold, _ in RESOURCE_SPECS]
-        # Per-core pressure is displayed separately, not compared as total CPU usage.
         candidates = [r for r in resources if r["key"] != "core" and r["mean"] is not None]
         dominant = max(candidates, key=lambda r: r["mean"]) if candidates else None
         processes = [{"pid": p["pid"], "name": p["name"], "created": p["created"],
@@ -187,7 +226,11 @@ class Accumulator:
                 "start": self.first_at, "end": self.last_at, "late_samples": self.late,
                 "min_ram_available_gb": self.min_available, "process_batches": self.process_batches,
                 "dominant": dominant, "resources": resources, "processes": processes,
-                "chart": reduce_chart(self.points or [])}
+                "chart": reduce_chart(self.points or []), "target_interval_ms": self.target_interval_ms,
+                "collection": {"gaps": self.collection_gaps, "max_gap_ms": self.max_gap_ms,
+                               "collector": self.collector.result(), "expensive_samples": self.expensive_samples,
+                               "process_error_samples": self.process_error_samples},
+                "assessment": self.assessment.result() if self.assessment is not None else {}}
 
 
 def reduce_chart(points, limit=1000):
@@ -199,7 +242,7 @@ def reduce_chart(points, limit=1000):
         bucket = points[start:start + width]
         row = {"t": bucket[-1]["t"]}
         for key, *_ in RESOURCE_SPECS:
-            row[key] = max((r[key] for r in bucket if r[key] is not None), default=None)
+            row[key] = max((r[key] for r in bucket if r.get(key) is not None), default=None)
         result.append(row)
     return result
 
@@ -239,7 +282,9 @@ def session_files(source):
 
 def analyze_session(source, cancel=None):
     warnings, markers, metadata = [], [], {}
+    inventory = None
     all_data = Accumulator(chart=True)
+    near_markers, outside_markers = Accumulator(process_context=False), Accumulator(process_context=False)
     with session_files(source) as open_file:
         try:
             with open_file("sessao.json") as file:
@@ -255,6 +300,25 @@ def analyze_session(source, cancel=None):
                     if key in ("schema_version", "app_version", "demo", "started", "ended", "system", "python",
                                "interval_ms", "count", "dropped", "reason", "max_hours", "max_raw_bytes", "window_seconds")
                     and (isinstance(value, (str, bool)) or number(value) or value is None)}
+        try:
+            with open_file("inventario.json") as file:
+                inventory = json.load(file)
+            json.dumps(inventory, allow_nan=False)
+            if not isinstance(inventory, dict) or not isinstance(inventory.get("sections"), dict):
+                raise ValueError()
+            for section in inventory["sections"].values():
+                if not isinstance(section, dict) or not isinstance(section.get("rows", []), list):
+                    raise ValueError()
+                if any(not isinstance(row, dict) for row in section.get("rows", [])):
+                    raise ValueError()
+            for disk in inventory["sections"].get("storage", {}).get("rows", []):
+                if disk.get("Reliability") is not None and not isinstance(disk["Reliability"], dict):
+                    raise ValueError()
+        except FileNotFoundError:
+            warnings.append("Sem inventário de drivers e saúde nesta sessão.")
+        except (ValueError, UnicodeError):
+            inventory = None
+            warnings.append("Inventário ilegível; análise de recursos preservada.")
         try:
             with open_file("marcacoes.csv") as file:
                 for row in csv.DictReader(io.TextIOWrapper(file, encoding="utf-8-sig")):
@@ -296,7 +360,7 @@ def analyze_session(source, cancel=None):
                             raise ValueError()
                         if all_data.last is not None and row["monotonic"] <= all_data.last:
                             raise ValueError()
-                        for key in ("gpus", "disks", "processes"):
+                        for key in ("gpus", "disks", "processes", "sensors"):
                             if not isinstance(row.get(key, []), list) or any(not isinstance(p, dict) for p in row.get(key, [])):
                                 raise ValueError()
                         if not isinstance(row.get("cpu_cores", []), list):
@@ -308,6 +372,7 @@ def analyze_session(source, cancel=None):
                     all_data.add(row)
                     left = bisect.bisect_left(centers, row["monotonic"] - 5)
                     right = bisect.bisect_right(centers, row["monotonic"] + 5)
+                    (near_markers if left < right else outside_markers).add(row)
                     for i in range(left, right):
                         windows[i].add(row)
                         (before[i] if row["monotonic"] < centers[i] else after[i]).add(row)
@@ -325,14 +390,29 @@ def analyze_session(source, cancel=None):
     if all_data.late:
         warnings.append(f"{all_data.late} amostra(s) chegaram com intervalo maior que 2× o alvo. Isso não mede frametime.")
     result = all_data.finish()
+    collection = result["collection"]
+    if collection["gaps"]:
+        warnings.append(f"{collection['gaps']} lacuna(s) entre amostras válidas; maior intervalo {collection['max_gap_ms']:.0f} ms. "
+                        "Pausas dentro dessas lacunas não podem ser reconstruídas.")
+    if collection["expensive_samples"]:
+        warnings.append(f"Em {collection['expensive_samples']} amostra(s), a coleta consumiu pelo menos o intervalo alvo. "
+                        "O próprio monitor pode interferir na medição; compare uma captura com intervalo maior.")
+    if collection["process_error_samples"]:
+        warnings.append(f"Coleta de processos informou erro em {collection['process_error_samples']} amostra(s); "
+                        "rankings e contexto de processos podem estar incompletos.")
+    if result["assessment"].get("truncated"):
+        warnings.append("Limite de 512 séries de telemetria atingido; estatísticas por dispositivo parciais.")
     events = []
     for marker, window, pre, post in zip(markers, windows, before, after):
         coverage = [window.first - marker["monotonic"], window.last - marker["monotonic"]] if window.count else [None, None]
         events.append({"marker": marker, "coverage": coverage, "analysis": window.finish(),
                        "before": pre.finish()["resources"], "after": post.finish()["resources"]})
-    return {"analysis_version": 1, "source": str(source), "metadata": metadata,
-            "summary": result, "events": events, "warnings": warnings,
-            "limitations": LIMITATIONS, "invalid_lines": invalid}
+    symptoms = compare_markers(events, near_markers.finish(), outside_markers.finish())
+    analysis = {"analysis_version": 4, "symptoms": symptoms, "inventory": inventory, "source": str(source), "metadata": metadata,
+                "summary": result, "events": events, "warnings": warnings,
+                "limitations": LIMITATIONS, "invalid_lines": invalid}
+    analysis["explanation"] = explain_capture({}, analysis)
+    return analysis
 
 
 def ranked_processes(summary, field="cpu_percent", statistic="peak"):
@@ -342,9 +422,11 @@ def ranked_processes(summary, field="cpu_percent", statistic="peak"):
 
 def report_text(result):
     summary = result["summary"]
-    lines = ["SYS-PULSE 2.0 — ANÁLISE DE PERFORMANCE", "", f"Sessão: {result['source']}",
+    lines = ["SYS-PULSE 2.2 — ANÁLISE DE PERFORMANCE", "", f"Sessão: {result['source']}",
              f"Período: {summary['start']} a {summary['end']}",
              f"Duração: {summary['duration_s']:.1f} s | Amostras: {summary['samples']}", ""]
+    if result.get("explanation"):
+        lines += [readable_report(result, "ENTENDA A CAPTURA"), "", "DETALHAMENTO TÉCNICO"]
     dominant = summary["dominant"]
     if dominant:
         lines.append(f"Maior utilização média (%): {dominant['name']} — {dominant['mean']:.1f}%")
@@ -365,7 +447,16 @@ def report_text(result):
             stat = p["metrics"][field]
             lines.append(f"{p['name']} | PID {p['pid']} | média observada {fmt(stat['mean'])} | pico {fmt(stat['peak'])} | "
                          f"às {display_time(stat['peak_at'])} | {stat['count']} leituras distintas")
-    lines += ["", "MARCAÇÕES"]
+    assessment = summary.get("assessment", {})
+    lines += ["", "TRIAGEM DE RECURSOS", assessment.get("method", "")]
+    for finding in assessment.get("findings", []):
+        lines += [finding["title"], finding["evidence"], finding["action"]]
+    if not assessment.get("findings"):
+        lines.append("Sem alerta nos critérios disponíveis; isso não descarta problemas não capturados.")
+    lines += ["", "ESTATÍSTICAS POR DISPOSITIVO"]
+    for row in assessment.get("telemetry", []):
+        lines.append(f"{row['name']}: mín {fmt(row['min'])} | média {fmt(row['mean'])} | máx {fmt(row['max'])} {row['unit']} | {row['count']} leituras")
+    lines += ["", inspection_text(result.get("inventory")), "", "MARCAÇÕES"]
     for event in result["events"]:
         marker = event["marker"]
         lines.append(f"#{marker['id']} {marker['timestamp']} — {marker['note']} | cobertura {event['coverage']} s")
@@ -378,7 +469,7 @@ def report_text(result):
 def save_report(result, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    # Complete each file off-path before replacing its previous version.
+    # Substituição atômica por arquivo.
     for name, contents in (("analise.json", json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)),
                            ("analise.txt", report_text(result))):
         target = destination / name
