@@ -5,9 +5,11 @@ from array import array
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication, QSurfaceFormat
 from PySide6.QtOpenGL import (QOpenGLWindow, QOpenGLShaderProgram, QOpenGLShader,
-                              QOpenGLVertexArrayObject, QOpenGLFunctions_3_2_Core)
+                              QOpenGLVertexArrayObject, QOpenGLFunctions_3_2_Core,
+                              QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat)
 
 from modules.stress import write_json, parent_alive
+from modules.gpu_checks import ArtifactCheck, MemoryCheck
 
 
 VERTEX = """#version 150
@@ -113,19 +115,32 @@ def render_gpu(folder, config):
     fmt.setSwapInterval(0)
     QSurfaceFormat.setDefaultFormat(fmt)
     app = QGuiApplication([])
+    app.setQuitOnLastWindowClosed(False)
     started = time.monotonic()
     timing = FrameTiming()
+    mode = config.get("gpu_test", "scene")
+    scene_enabled = mode != "vram"
+    artifacts_enabled = config.get("gpu_artifacts", True) and scene_enabled
+    memory_enabled = mode in ("vram", "combined")
     resolution = config.get("resolution", "1280x720")
+    width, height = map(int, resolution.split("x"))
+    if not scene_enabled:
+        width, height = 720, 420
     profile = config.get("gpu_profile", "balanced")
-    iterations = {"geometry": 16, "balanced": 128, "shader": 384}[profile]
+    iterations = {"geometry": 16, "balanced": 128, "shader": 384}[profile] if scene_enabled else 16
     result = {"kind": "gpu", "state": "running", "checks": None, "errors": None, "frames": 0,
               "elapsed_s": 0, "started_monotonic": started, "reason": "Duração concluída",
-              "options": {key: config.get(key) for key in ("kind", "duration_s", "intensity", "resolution", "gpu_profile")},
-              "method": "OpenGL 3.2: 84 cubos instanciados, perspectiva, profundidade e iluminação. "
-                        "Perfis variam o shader. Sem detector de artefatos ou teste integral de VRAM."}
+              "options": {key: config.get(key) for key in ("kind", "duration_s", "intensity", "resolution", "gpu_profile",
+                                                           "gpu_test", "gpu_artifacts", "gpu_vram_mb")},
+              "verification_ms": 0.0, "verification_max_ms": 0.0, "evidence": [],
+              "method": ("Cena OpenGL 3.2 com resolução fixa, 84 cubos, profundidade e iluminação. "
+                         if scene_enabled else "Verificação de buffers da GPU com uma prévia 3D leve. ")
+                        + "Verificações são informadas separadamente; não certifica integridade física."}
 
     class Window(QOpenGLWindow):
         def initializeGL(self):
+            self.memory = self.artifacts = None
+            self.scene = self.reference = None
             try:
                 self.functions = QOpenGLFunctions_3_2_Core()
                 if not self.functions.initializeOpenGLFunctions():
@@ -135,47 +150,126 @@ def render_gpu(folder, config):
                 if any(name in result["renderer"].lower() for name in ("llvmpipe", "softpipe", "software", "swiftshader", "microsoft basic")):
                     raise RuntimeError("Renderização por software detectada; não corresponde a um teste da GPU.")
                 self.shader = QOpenGLShaderProgram(self)
-                if not self.shader.addShaderFromSourceCode(QOpenGLShader.Vertex, VERTEX):
-                    raise RuntimeError(self.shader.log())
-                if not self.shader.addShaderFromSourceCode(QOpenGLShader.Fragment, FRAGMENT.replace("ITERATIONS", str(iterations))) or not self.shader.link():
+                if (not self.shader.addShaderFromSourceCode(QOpenGLShader.Vertex, VERTEX) or
+                        not self.shader.addShaderFromSourceCode(QOpenGLShader.Fragment, FRAGMENT.replace("ITERATIONS", str(iterations))) or
+                        not self.shader.link()):
                     raise RuntimeError(self.shader.log())
                 self.time_uniform = self.shader.uniformLocation("elapsed")
                 self.aspect_uniform = self.shader.uniformLocation("aspect")
                 self.vao = QOpenGLVertexArrayObject(self)
                 if not self.vao.create():
                     raise RuntimeError("Não foi possível preparar a geometria.")
-                self.functions.glEnable(0x0B71)
+                self.vao.bind()
+                for state in (0x0BD0, 0x0BE2, 0x8DB9, 0x0C11):
+                    self.functions.glDisable(state)
                 self.functions.glClearColor(0.035, 0.05, 0.09, 1.0)
+                framebuffer_format = QOpenGLFramebufferObjectFormat()
+                framebuffer_format.setAttachment(QOpenGLFramebufferObject.CombinedDepthStencil)
+                framebuffer_format.setSamples(0)
+                framebuffer_format.setInternalTextureFormat(0x8058)
+                self.scene = QOpenGLFramebufferObject(width, height, framebuffer_format)
+                if not self.scene.isValid():
+                    raise RuntimeError("Não foi possível preparar a resolução escolhida.")
+                result["render_resolution" if scene_enabled else "preview_resolution"] = [width, height]
+                if artifacts_enabled:
+                    self.reference = QOpenGLFramebufferObject(width, height, framebuffer_format)
+                    if not self.reference.isValid():
+                        raise RuntimeError("Não foi possível preparar a imagem de comparação.")
+                    self.artifacts = ArtifactCheck(self.functions)
+                if memory_enabled:
+                    self.memory = MemoryCheck(self.context(), self.functions, config.get("gpu_vram_mb", 512))
                 self.submit_total = 0.0
+                self.next_check = started+.2
             except Exception as error:
                 result.update(state="failed", reason=str(error))
                 QTimer.singleShot(0, app.quit)
 
+        def draw_scene(self, target, elapsed):
+            target.bind()
+            self.functions.glViewport(0, 0, width, height)
+            self.functions.glEnable(0x0B71)
+            self.functions.glClear(0x00004000 | 0x00000100)
+            self.shader.bind()
+            self.functions.glUniform1f(self.time_uniform, elapsed)
+            self.functions.glUniform1f(self.aspect_uniform, width/height)
+            self.functions.glDrawArraysInstanced(0x0004, 0, 36, 84)
+            self.shader.release()
+            if self.functions.glGetError():
+                raise RuntimeError("O driver não concluiu a renderização; resultado incompleto.")
+
+        def sync_checks(self):
+            art = self.artifacts.stats if self.artifacts else {}
+            mem = self.memory.stats if self.memory else {}
+            if self.artifacts:
+                result["artifacts"] = dict(art)
+            if self.memory:
+                result["vram"] = dict(mem)
+            checks = art.get("checks", 0)+mem.get("checks", 0)
+            result["checks"] = checks or None
+            result["errors"] = art.get("failed_checks", 0)+mem.get("failed_checks", 0) if checks else None
+            if result["errors"]:
+                result.update(state="failed", reason="Divergência na verificação gráfica; carga interrompida e evidências preservadas.")
+                QTimer.singleShot(0, app.quit)
+
         def paintGL(self):
-            if not hasattr(self, "vao") or result["state"] == "failed":
+            if not getattr(self, "scene", None) or result["state"] == "failed":
                 return
             try:
                 before = time.perf_counter()
-                scale = self.devicePixelRatio()
-                width, height = int(self.width()*scale), int(self.height()*scale)
-                self.functions.glViewport(0, 0, width, height)
-                result["render_resolution"] = [width, height]
-                self.functions.glClear(0x00004000 | 0x00000100)
-                self.shader.bind()
                 self.vao.bind()
-                self.functions.glUniform1f(self.time_uniform, time.monotonic()-started)
-                self.functions.glUniform1f(self.aspect_uniform, width/max(1, height))
-                self.functions.glDrawArraysInstanced(0x0004, 0, 36, 84)
+                if self.memory:
+                    check_at = time.perf_counter()
+                    for _ in range(2 if scene_enabled else 4):
+                        self.memory.step()
+                        if self.memory.stats["failed_checks"]:
+                            break
+                    self.sync_checks()
+                    if result["state"] == "failed":
+                        return
+                    elapsed_check = (time.perf_counter()-check_at)*1000
+                    result["verification_ms"] += elapsed_check
+                    result["verification_max_ms"] = max(result["verification_max_ms"], elapsed_check)
+                elapsed = time.monotonic()-started
+                self.draw_scene(self.scene, elapsed)
+                if self.artifacts and time.monotonic() >= self.next_check:
+                    check_at = time.perf_counter()
+                    first = self.scene.toImage(False)
+                    self.draw_scene(self.reference, elapsed)
+                    second = self.reference.toImage(False)
+                    difference = self.artifacts.compare_scene(first, second)
+                    if difference["words"]:
+                        for name, frame in (("artefato-referencia.png", first), ("artefato-observado.png", second)):
+                            if frame.save(str(folder/name)):
+                                result["evidence"].append(name)
+                    else:
+                        pattern_difference = self.artifacts.known_pattern()
+                        if pattern_difference["words"]:
+                            for name, frame in (("padrao-referencia.png", self.artifacts.failed_expected),
+                                                ("padrao-observado.png", self.artifacts.failed_image)):
+                                if frame.save(str(folder/name)):
+                                    result["evidence"].append(name)
+                    self.draw_scene(self.scene, elapsed)
+                    elapsed_check = (time.perf_counter()-check_at)*1000
+                    result["verification_ms"] += elapsed_check
+                    result["verification_max_ms"] = max(result["verification_max_ms"], elapsed_check)
+                    self.next_check = time.monotonic()+1
+                self.sync_checks()
+                self.functions.glBindFramebuffer(0x8CA8, self.scene.handle())
+                self.functions.glBindFramebuffer(0x8CA9, self.defaultFramebufferObject())
+                scale = self.devicePixelRatio()
+                display_width, display_height = int(self.width()*scale), int(self.height()*scale)
+                self.functions.glBlitFramebuffer(0, 0, width, height, 0, 0, display_width, display_height, 0x00004000, 0x2600)
+                self.functions.glBindFramebuffer(0x8D40, self.defaultFramebufferObject())
                 if self.functions.glGetError():
-                    raise RuntimeError("OpenGL informou erro durante a carga.")
+                    raise RuntimeError("OpenGL informou erro durante a carga; resultado incompleto.")
                 self.vao.release()
-                self.shader.release()
                 self.submit_total += (time.perf_counter()-before)*1000
                 result["frames"] += 1
                 result["cpu_submit_mean_ms"] = self.submit_total/result["frames"]
             except Exception as error:
+                self.sync_checks()
                 result.update(state="failed", reason=f"Renderização interrompida: {error}")
-                app.quit()
+                QTimer.singleShot(0, app.quit)
 
         def swapped(self):
             now = time.monotonic()
@@ -186,14 +280,16 @@ def render_gpu(folder, config):
         def closeEvent(self, event):
             if time.monotonic()-started < config["duration_s"]-.5 and result["state"] != "failed":
                 result["reason"] = "Janela do teste fechada"
-            app.quit()
+            QTimer.singleShot(0, app.quit)
             event.accept()
 
     window = Window()
     window.frameSwapped.connect(window.swapped)
-    window.setTitle("SysPulse · cena 3D · fechar interrompe")
-    width, height = map(int, resolution.split("x"))
-    window.resize(width, height)
+    window.setTitle("SysPulse · GPU · fechar interrompe")
+    screen = app.primaryScreen()
+    available = screen.availableGeometry() if screen else None
+    preview_scale = min(1, available.width()*.8/width, available.height()*.75/height) if available else min(1, 1280/width, 720/height)
+    window.resize(max(320, int(width*preview_scale)), max(200, int(height*preview_scale)))
     window.show()
     render = QTimer()
     render.setInterval(max(1, int(40*(1-config["intensity"]/100))))
@@ -201,22 +297,35 @@ def render_gpu(folder, config):
     render.start()
     monitor = QTimer()
 
+    def refresh_metrics():
+        result.update(timing.summary())
+        if not scene_enabled:
+            result["preview_fps"] = result["fps"]
+            for field in ("fps", "frametime_p95_ms", "frametime_p99_ms", "frametime_max_ms"):
+                result[field] = None
+        result["frametime_method"] += " Inclui a verificação e leitura de dados quando habilitadas; não compare modos diferentes como benchmark."
+
     def poll():
         result["elapsed_s"] = time.monotonic()-started
-        result.update(timing.summary())
-        fps = result.get("fps")
-        window.setTitle(f"SysPulse · cena 3D · {fps:.1f} FPS · fechar interrompe" if fps else "SysPulse · preparando cena 3D")
+        refresh_metrics()
+        if result.get("vram"):
+            memory = result["vram"]
+            window.setTitle(f"SysPulse · {memory['phase']} · {memory['allocated_bytes']//1024**2} MiB · "
+                            f"{memory['passes']} passagens · fechar interrompe")
+        else:
+            fps = result.get("fps")
+            window.setTitle(f"SysPulse · {width}×{height} · {fps:.1f} FPS · fechar interrompe" if fps else "SysPulse · preparando GPU")
         if (folder/"stop").exists() or not parent_alive(config):
             result["reason"] = "Parada solicitada ou aplicativo encerrado"
-            app.quit()
+            QTimer.singleShot(0, app.quit)
         elif result["elapsed_s"] >= config["duration_s"]:
-            app.quit()
+            QTimer.singleShot(0, app.quit)
         elif result["frames"] and time.monotonic()-getattr(window, "last_frame", started) > 3:
             result.update(state="stopped", reason="A janela deixou de renderizar. Mantenha o teste visível.")
-            app.quit()
+            QTimer.singleShot(0, app.quit)
         elif result["elapsed_s"] > 10 and not result["frames"]:
             result.update(state="failed", reason="A janela não produziu quadros; confira OpenGL e o driver.")
-            app.quit()
+            QTimer.singleShot(0, app.quit)
         write_json(folder/"progress.json", result)
 
     monitor.timeout.connect(poll)
@@ -228,9 +337,37 @@ def render_gpu(folder, config):
         result["state"] = ("stopped" if time.monotonic()-started < config["duration_s"]-.5 else "completed") if result["frames"] else "failed"
         if not result["frames"]:
             result["reason"] = "Sem quadros válidos."
-    result.update(timing.summary())
+    if memory_enabled and not result.get("vram", {}).get("checks") and result["state"] == "completed":
+        result.update(state="stopped", reason="Prazo encerrado antes da primeira leitura de memória; verificação incompleta.")
+    requested_checks = artifacts_enabled or memory_enabled
+    art = result.get("artifacts") or {}
+    memory = result.get("vram") or {}
+    result["verification_status"] = (
+        "failed" if result.get("errors") else
+        "disabled" if not requested_checks else
+        "unavailable" if not result.get("checks") else
+        "partial" if (memory_enabled and not memory.get("coverage_complete") or
+                      artifacts_enabled and (not art.get("scene_pairs") or not art.get("known_patterns")) or
+                      result["state"] != "completed") else "passed")
+    refresh_metrics()
     result["elapsed_s"] = time.monotonic()-started
     result["ended_monotonic"] = time.monotonic()
     write_json(folder/"result.json", result)
+    try:
+        if window.context() and window.context().isValid():
+            window.makeCurrent()
+            if getattr(window, "memory", None):
+                window.memory.close()
+            window.scene = window.reference = None
+            if getattr(window, "artifacts", None):
+                window.artifacts.buffer = None
+            window.doneCurrent()
+    except Exception as error:
+        result["cleanup_warning"] = str(error)
+        result["state"] = "failed"
+        result["reason"] = "O driver não concluiu a liberação dos recursos gráficos."
+        if not result.get("errors"):
+            result["verification_status"] = "partial"
+        write_json(folder/"result.json", result)
     window.close()
     return 0 if result["state"] in ("completed", "stopped") else 1

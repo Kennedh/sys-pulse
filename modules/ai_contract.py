@@ -53,13 +53,13 @@ def render_explanation(text, payload):
                      "dpc": "CPU em DPC"}.get(label, label)
             unit = row.get("unit", "")
             values = []
-            for key in ("mean", "max", "p95", "p99_ms", "max_ms", "long_intervals", "total_us", "max_bucket_low_us", "max_bucket_high_us", "early", "late", "delta"):
+            for key in ("mean", "max", "p95", "p99_ms", "max_ms", "long_intervals", "total_us", "max_bucket_low_us", "max_bucket_high_us", "early", "late", "delta", "checks", "failures"):
                 value = row.get(key)
                 if isinstance(value, (int, float)):
                     caption = {"mean": "média", "max": "pico", "p95": "P95", "p99_ms": "P99", "max_ms": "maior intervalo",
                                "long_intervals": "intervalos longos", "total_us": "tempo acumulado",
                                "max_bucket_low_us": "faixa inferior", "max_bucket_high_us": "faixa superior",
-                               "early": "início", "late": "fim", "delta": "variação"}[key]
+                               "early": "início", "late": "fim", "delta": "variação", "checks": "verificações", "failures": "divergências"}[key]
                     values.append(f"{caption}: {value:g} {unit if key != 'long_intervals' else 'ocorrências'}".strip())
             lines.append(f"{identifier} · {label} · " + " | ".join(values))
         lines += ["Próximo teste: " + action, ""]

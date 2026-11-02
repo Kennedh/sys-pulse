@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 3.4.0 — 01/11/2026
+
+- Teste GPU separado em cena 3D, verificação de VRAM e modo combinado.
+- Resolução fixa HD, Full HD, QHD, 4K ou personalizada, independente da janela e da escala de tela.
+- Comparação de renderizações do mesmo instante e de padrão conhecido; parada em divergência e até duas imagens de evidência.
+- Buffers escritos pela GPU e comparados integralmente na CPU com 70 padrões.
+- Orçamento manual ou automático de memória com reserva; cobertura, bytes únicos, leituras repetidas, ciclos e divergências separados.
+- Limites explícitos da memória acessível pelo driver e do detector de imagens.
+- Resultados e evidências de GPU integrados à explicação, à triagem e ao resumo de IA.
+- Encerramento gráfico adiado até sair da renderização, preservando o resultado após detectar divergência.
+- Verificação de falha do processo mesmo após gravar o resultado; ferramentas de validação com falhas sintéticas identificadas.
+
 ## 3.3.0 — 01/11/2026
 
 - Conexão por serviço e servidor, com busca no catálogo e entrada manual de modelo.

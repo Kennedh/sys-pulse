@@ -3,6 +3,7 @@ import json
 import multiprocessing
 import os
 import queue
+import re
 import subprocess
 import sys
 import time
@@ -32,12 +33,25 @@ def validate_options(options):
         raise ValueError("Carga ou quantidade de RAM fora do limite.")
     if kind == "memory" and memory * 1024 ** 2 > psutil.virtual_memory().available * .25:
         raise ValueError("A RAM escolhida excede 25% da memória disponível. Reduza a quantidade.")
-    resolution = options.get("resolution", "1280x720")
-    profile = options.get("gpu_profile", "balanced")
-    if resolution not in ("1280x720", "1920x1080", "2560x1440") or profile not in ("geometry", "balanced", "shader"):
-        raise ValueError("Resolução ou perfil gráfico inválido.")
+    gpu = options if kind == "gpu" else {}
+    gpu_test = gpu.get("gpu_test", "scene")
+    scene = gpu_test in ("scene", "combined")
+    memory_check = gpu_test in ("vram", "combined")
+    resolution = str(gpu.get("resolution", "1280x720") if scene else "1280x720").lower().replace("×", "x").replace(" ", "")
+    match = re.fullmatch(r"(\d{3,4})x(\d{3,4})", resolution)
+    profile = gpu.get("gpu_profile", "balanced") if scene else "geometry"
+    artifacts = gpu.get("gpu_artifacts", True) if scene else False
+    vram_mb = int(gpu.get("gpu_vram_mb", 512)) if memory_check else 512
+    if not match or not all(128 <= int(value) <= 8192 for value in match.groups()) or int(match[1])*int(match[2]) > 16_777_216:
+        raise ValueError("Resolução inválida. Use largura x altura, até 8192 por lado e 16 milhões de pixels.")
+    if profile not in ("geometry", "balanced", "shader") or gpu_test not in ("scene", "vram", "combined"):
+        raise ValueError("Perfil ou modo gráfico inválido.")
+    if not isinstance(artifacts, bool) or vram_mb != 0 and (not 16 <= vram_mb <= 16384 or vram_mb % 4):
+        raise ValueError("Use um orçamento VRAM de 16 a 16384 MiB, em múltiplos de 4, ou automático.")
     return {"kind": kind, "duration_s": duration, "workers": workers, "intensity": intensity,
-            "memory_mb": memory, "resolution": resolution, "gpu_profile": profile}
+            "memory_mb": memory, "resolution": resolution, "gpu_profile": profile, "gpu_test": gpu_test,
+            "gpu_artifacts": artifacts, "gpu_vram_mb": vram_mb}
+
 
 
 def cpu_lane(stop, deadline, intensity, result):
@@ -74,7 +88,7 @@ def run_worker(folder):
     if options["kind"] == "gpu":
         try:
             from modules.stress_gpu import run_gpu
-            return run_gpu(folder, config)
+            return run_gpu(folder, {**config, **options})
         except Exception as error:
             write_json(folder / "result.json", {"kind": "gpu", "state": "failed", "checks": None, "errors": None,
                        "elapsed_s": 0, "reason": f"Não foi possível iniciar a cena 3D: {type(error).__name__}: {error}",

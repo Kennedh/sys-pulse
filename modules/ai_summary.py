@@ -91,6 +91,14 @@ def ai_payload(result):
                          "metric": "RSS do aplicativo escolhido; crescimento não comprova vazamento",
                          "unit": "MiB", "candidate": True, "early": finite(growth.get("early_mb")),
                          "late": finite(growth.get("late_mb")), "delta": finite(growth.get("delta_mb"))})
+    stress = result.get("stress") or {}
+    if isinstance(stress, dict) and stress.get("kind") == "gpu":
+        for key, caption in (("artifacts", "Verificação de imagens da GPU"), ("vram", "Verificação de buffers da GPU")):
+            stats = stress.get(key)
+            if isinstance(stats, dict) and (finite(stats.get("failed_checks")) or 0) > 0:
+                evidence.append({"id": f"E{len(evidence) + 1}", "type": "gpu_verification", "category": "graphics",
+                                 "candidate": True, "metric": caption, "unit": "ocorrências",
+                                 "checks": finite(stats.get("checks")), "failures": finite(stats.get("failed_checks"))})
     network = summary.get("assessment", {}).get("network", {})
     return {"evidence": evidence, "frametimes": frame_metrics,
             "network": {key: finite(network.get(key)) for key in ("attempts", "replies", "timeouts", "mean_ms", "max_ms", "variation_ms")},

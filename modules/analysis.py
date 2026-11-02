@@ -16,6 +16,7 @@ from modules.incidents import compare_markers
 from modules.frametimes import analyze_frames
 from modules.session_insights import SessionInsights, insight_text
 from modules.version import VERSION
+from modules.gpu_results import gpu_result_text
 
 
 RESOURCE_SPECS = (
@@ -503,7 +504,7 @@ def report_text(result):
                       f"FPS: {fmt(stress.get('fps'))} | frametime P95 {fmt(stress.get('frametime_p95_ms'), ' ms')} | "
                       f"P99 {fmt(stress.get('frametime_p99_ms'), ' ms')} | maior {fmt(stress.get('frametime_max_ms'), ' ms')}",
                       f"Submissão CPU média: {fmt(stress.get('cpu_submit_mean_ms'), ' ms')} (inclui espera da API; não é tempo de GPU)",
-                      str(stress.get("frametime_method") or "")]
+                      str(stress.get("frametime_method") or ""), gpu_result_text(stress)]
         else:
             lines += [f"Verificações: {stress.get('checks', 'N/D')} | divergências: {stress.get('errors', 'N/D')}"]
         lines.append("")

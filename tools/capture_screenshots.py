@@ -78,6 +78,20 @@ def main():
         panel.accept_models(panel._generation, ["modelo-local-demonstracao"], "")
         pump(application)
         assert window.grab().save(str(output / "servidor-ia.png"))
+        from modules.gpu_results import gpu_result_text
+        window.show_page(8)
+        window.stress.kind.setCurrentIndex(window.stress.kind.findData("gpu"))
+        window.stress.gpu_test.setCurrentIndex(window.stress.gpu_test.findData("combined"))
+        window.stress.resolution.setCurrentIndex(window.stress.resolution.findData("3840x2160"))
+        preview = {"verification_status": "partial", "render_resolution": [3840, 2160],
+                   "artifacts": {"scene_pairs": 12, "known_patterns": 12, "failed_checks": 0, "mismatched_pixels": 0},
+                   "vram": {"phase": "Verificando", "pattern": "Bit 8 ligado", "target_bytes": 512*1024**2,
+                            "allocated_bytes": 512*1024**2, "unique_checked_bytes": 512*1024**2,
+                            "checked_bytes": 12*512*1024**2, "passes": 12, "cycles": 0,
+                            "coverage_complete": False, "mismatched_words": 0, "mismatched_bits": 0}}
+        window.stress.live.setPlainText("DADOS SIMULADOS\n" + gpu_result_text(preview))
+        pump(application)
+        assert window.grab().save(str(output / "gpu-verificacao.png"))
     finally:
         window.shutdown()
         window.close()

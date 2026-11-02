@@ -281,8 +281,21 @@ def explain_capture(result, native=None):
         evidence.append({"id": f"E{len(evidence) + 1}", "title": "Resultado da carga controlada",
                          "observed": f"Teste {STRESS_COMPONENTS.get(stress.get('kind'), 'N/D')}; estado {STRESS_STATES.get(stress.get('state'), 'N/D')}; duração {stress.get('elapsed_s', 0):.1f} s; "
                                      f"divergências verificadas: {stress.get('errors') if stress.get('errors') is not None else 'N/D'}; encerramento: {stress.get('reason', 'N/D')}.",
-                         "meaning": "Concluir uma carga não comprova integridade física. No teste GPU são verificados renderização e funcionamento, sem detector de artefatos.",
+                         "meaning": "Concluir uma carga não comprova integridade física. Confira verificações habilitadas, divergências e cobertura dos padrões.",
                          "next_test": "Compare as fases antes, durante e depois da carga e repita mantendo a configuração."})
+    if native and isinstance(native.get("stress"), dict) and native["stress"].get("kind") == "gpu":
+        from modules.gpu_results import gpu_result_text
+        stress = native["stress"]
+        evidence.append({"id": f"E{len(evidence) + 1}", "title": "Verificação de imagens e memória da GPU",
+                         "observed": gpu_result_text(stress),
+                         "meaning": "Uma divergência merece repetição e investigação no caminho GPU, driver e memória. "
+                                    "A cobertura não inclui VRAM física reservada nem falhas fora dos padrões.",
+                         "next_test": "Repita com a mesma configuração e confira temperatura, clocks, driver, evidências e cobertura. "
+                                      "Compare separadamente a cena e a memória; não conclua qual peça falhou apenas pelo contador."})
+        if stress.get("verification_status") == "failed":
+            summary = "Divergências detectadas na verificação da GPU. A carga foi interrompida; confira os contadores e as evidências abaixo."
+        elif stress.get("verification_status") in ("partial", "unavailable"):
+            summary += " A verificação GPU ficou incompleta; confira a cobertura dos bytes e dos padrões."
     return {"summary": summary, "evidence": evidence, "limitations": list(dict.fromkeys(limits)), "next_steps": steps,
             "conclusion": "Causa não confirmada; nenhuma peça condenada por esta análise."}
 

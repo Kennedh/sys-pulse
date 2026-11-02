@@ -1,4 +1,4 @@
-# SysPulse 3.3
+# SysPulse 3.4
 
 **Grave o desempenho, marque o sintoma e investigue as evidências.**
 
@@ -14,12 +14,12 @@ Os prints e a sessão de demonstração usam **dados simulados**, identificados 
 
 Os arquivos ficam em **Releases → Assets** no GitHub. Modelos de IA não acompanham o instalador.
 
-| Sistema | Arquivo da versão 3.3 | Instalação |
+| Sistema | Arquivo da versão 3.4 | Instalação |
 |---|---|---|
-| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
-| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
-| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
-| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.3.0/SysPulse-3.3.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
+| Windows x64 | [Setup.exe](https://github.com/Kennedh/sys-pulse/releases/download/v3.4.0/SysPulse-3.4.0-Windows-x64-Setup.exe) | Escolha a pasta, os atalhos e como preparar a análise. Inclui desinstalador. |
+| Linux x64 | [Setup.run](https://github.com/Kennedh/sys-pulse/releases/download/v3.4.0/SysPulse-3.4.0-Linux-x64-Setup.run) | Escolha uma pasta exclusiva. Não precisa de root ao instalar na pasta do usuário. |
+| macOS Apple Silicon | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.4.0/SysPulse-3.4.0-macOS-arm64-Setup.pkg) | Instalador nativo, com destino padrão em Aplicativos. |
+| macOS Intel | [Setup.pkg](https://github.com/Kennedh/sys-pulse/releases/download/v3.4.0/SysPulse-3.4.0-macOS-x64-Setup.pkg) | Instalador nativo para Intel. |
 
 A seção Assets também oferece ZIP portátil no Windows, TAR.GZ no Linux, DMG no macOS e SHA256SUMS.txt para conferir a integridade. No DMG, arraste o aplicativo para a pasta desejada. A disponibilidade de cada arquivo depende de seu build nativo concluir com sucesso.
 
@@ -75,7 +75,8 @@ Abra **TESTES DE ESTRESSE**, escolha componente, duração e intensidade solicit
 | Teste | O que executa | Limite |
 |---|---|---|
 | CPU | Processos separados com PBKDF2-SHA256 e verificação de um resultado conhecido | Não cobre todas as instruções, caches ou modos de falha do processador. |
-| GPU 3D | 84 cubos em movimento, perspectiva, profundidade e iluminação. Perfis de shader e resolução 720p/1080p/1440p; FPS e frametime P95/P99. | Sem detector de artefatos ou teste integral de VRAM. O driver escolhe o adaptador. |
+| GPU 3D | 84 cubos em movimento, perspectiva, profundidade e iluminação. Resolução fixa HD/Full HD/QHD/4K ou personalizada; FPS e frametime P95/P99. Verificação opcional das imagens e de um padrão conhecido. | Artefatos idênticos nas duas imagens podem passar. O driver escolhe o adaptador. |
+| VRAM | Escrita pela GPU, leitura integral dos buffers pela CPU e comparação com 70 padrões; pode ser combinada com a cena 3D. | Cobre a alocação acessível pelo driver, com reserva para o sistema. Não verifica toda a VRAM física ou áreas reservadas. |
 | RAM | Escrita/leitura dos padrões 0xAA/0x55 em blocos de 1 MiB | Verifica somente a alocação virtual escolhida, até 25% da RAM disponível; não substitui MemTest. |
 
 A duração da carga pode ser 5, 15, 30 ou 60 minutos. A intensidade é um orçamento de trabalho, não uma promessa de utilização exata. O padrão CPU usa até 64 processos lógicos disponíveis e 50% do orçamento por processo; é possível ajustar.
@@ -88,7 +89,21 @@ Mantenha a janela GPU visível. Renderização por software é recusada. Fechar 
 
 Concluir sem divergências não certifica estabilidade física. Teste interrompido, falha de processo e ausência de verificação GPU aparecem separados de uma conclusão normal. Os parâmetros, limites, leituras térmicas e resultados ficam em stress.json junto à sessão.
 
-![Teste de estresse em demonstração](docs/images/estresse.png)
+### Configurar o teste de GPU
+
+1. Escolha **GPU** e o modo: **Cena 3D**, **VRAM · escrita e leitura** ou **Cena 3D + VRAM**.
+2. Na cena, selecione HD, Full HD, QHD ou 4K. Para outra resolução, digite largura×altura, como 3440x1440. O limite é 16.777.216 pixels, com até 8192 por dimensão; 8K não é aceito.
+3. Mantenha **Verificar imagens e padrão gráfico conhecido** para comparar duas renderizações do mesmo instante e um padrão calculado independentemente na CPU.
+4. Na VRAM, escolha o orçamento em MiB ou **Usar a disponível com reserva**. O automático reserva pelo menos 512 MiB ou 15% da memória livre informada e limita a alocação a 16 GiB. Sem informação do driver, usa um limite conservador de até 512 MiB e 10% da RAM livre.
+5. Acompanhe passagens, ciclos, bytes únicos lidos e divergências. Um ciclo reúne os 70 padrões. **Cobertura completa** exige ler todo o orçamento efetivo e concluir pelo menos um ciclo.
+
+A resolução é renderizada em um framebuffer fixo; redimensionar a janela ou usar escala de tela não muda o teste. A janela exibe uma prévia. Na verificação exclusiva de VRAM, essa prévia é leve e seus FPS não são apresentados como desempenho do teste de memória.
+
+Os padrões de memória incluem zeros, uns, 0xAA/0x55, endereços, inversos e bits móveis. Os endereços são lógicos: o driver pode paginar buffers ou usar memória compartilhada. O orçamento efetivo pode ser menor que o solicitado para preservar a reserva. Um resultado sem erros não comprova a integridade de áreas que não foram verificadas.
+
+Ao detectar divergência, a carga solicita parada e preserva contadores e exemplos. Divergência de imagem salva até duas PNGs de evidência na pasta auxiliar indicada pelo relatório. Verificações normais não gravam vídeo nem uma imagem por quadro. A leitura de buffers e imagens aumenta CPU, tráfego e frametime; o relatório informa esse custo. Compare desempenho apenas com os mesmos parâmetros.
+
+![Verificação GPU com dados simulados](docs/images/gpu-verificacao.png)
 
 ## Quadros e frametimes
 
@@ -335,13 +350,15 @@ No Windows, fetch_build_tools.py baixa Inno Setup e PresentMon oficiais, com SHA
 
 - tools/benchmark.py mede uma sessão real; --duration 1800 --offscreen permite repetir o acompanhamento de 30 minutos.
 - tools/validate_graphics.py cria uma janela gráfica de teste para verificar quadros.
+- tools/validate_gpu.py valida a cena, a resolução e os buffers com carga curta; --self-test percorre os 70 padrões em 16 MiB e injeta divergências identificadas como sintéticas; --fault-test confere parada e PNGs com um pixel alterado.
+- modules/gpu_checks.py separa os verificadores da janela; gpu_results.py compartilha os contadores entre a interface e o relatório.
 - tools/capture_screenshots.py recria os prints com dados simulados.
 - modules/windows_processes.py agrupa a leitura de processos do Windows, com fallback.
 - modules/ai_providers.py centraliza o catálogo de serviços; ai_connections.py resolve endereços, formatos e autenticação.
 - modules/ai_login.py trata a autorização pelo navegador; ai_service.py e ai_contract.py separam transporte e validação das evidências.
 - modules/frametimes.py e etl_details.py mantêm a interpretação dos formatos fora da interface.
 
-A versão 3.3 passou com 238 testes no Windows e 237 nos outros três ambientes nativos, com um teste exclusivo de Windows não aplicável. Os quatro pacotes passaram nas verificações e estão publicados em Releases. A suíte cobre conectores, autorização em loopback, quatro formatos por HTTP, isolamento de credenciais e seleção de modelos. Os catálogos públicos OpenRouter e Hugging Face foram consultados sem gerar inferência; autorizações e inferências pagas foram simuladas nos testes. Medições e limites estão em [validação 3.3](docs/validacao-3.3.md). A [validação 3.2](docs/validacao-3.2.md) preserva os testes reais de captura, GPU, drivers e consumo.
+A versão 3.4 passou com 270 testes nesta máquina Windows. A validação real na RTX 3050 conferiu renderização 4K, um ciclo completo dos 70 padrões em 16 MiB e a parada com evidências em uma falha simulada. Não foi executado teste prolongado nem de toda a memória física. Consulte [validação 3.4](docs/validacao-3.4.md) para resultados e limites. A [validação 3.3](docs/validacao-3.3.md) preserva os testes dos conectores de IA; a [validação 3.2](docs/validacao-3.2.md) registra captura, drivers e consumo.
 
 O workflow [Instaladores e release](.github/workflows/release.yml) testa e gera os pacotes nos runners nativos; uma tag v3.x publica os arquivos em Releases somente após todos os builds passarem. As [validações 3.1](docs/validacao-3.1.md) e [3.0](docs/validacao-3.0.md) preservam os resultados anteriores nos quatro sistemas.
 

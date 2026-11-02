@@ -6,10 +6,11 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import Signal, QTimer, QStandardPaths
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
-                              QComboBox, QSpinBox, QLineEdit, QFileDialog, QMessageBox, QPlainTextEdit)
+                              QComboBox, QSpinBox, QLineEdit, QFileDialog, QMessageBox, QPlainTextEdit, QCheckBox)
 
 from modules.diagnostics import SessionRecorder
 from modules.stress import StressController, validate_options, write_json
+from modules.gpu_results import gpu_result_text
 
 
 class StressPanel(QWidget):
@@ -31,6 +32,7 @@ class StressPanel(QWidget):
         self.options = None
         self.thermal_coverage = {"cpu": 0, "gpu": 0}
         self._closed = False
+        self.gpu_status = {}
         layout = QVBoxLayout(self)
         title = QLabel("Teste a resposta do sistema sob carga")
         title.setObjectName("title")
@@ -45,9 +47,23 @@ class StressPanel(QWidget):
         for label, value in (("CPU · cálculo com resultado conhecido", "cpu"),
                              ("GPU · renderização 3D", "gpu"), ("RAM · escrita e leitura verificadas", "memory")):
             self.kind.addItem(label, value)
+        self.gpu_test = QComboBox()
+        for label, value in (("Cena 3D", "scene"), ("VRAM · escrita e leitura", "vram"), ("Cena 3D + VRAM", "combined")):
+            self.gpu_test.addItem(label, value)
         self.resolution = QComboBox()
-        for size in ("1280x720", "1920x1080", "2560x1440"):
-            self.resolution.addItem(size, size)
+        self.resolution.setEditable(True)
+        self.resolution.setInsertPolicy(QComboBox.NoInsert)
+        for size, caption in (("1280x720", "HD"), ("1920x1080", "Full HD"), ("2560x1440", "QHD"), ("3840x2160", "4K")):
+            self.resolution.addItem(size + " · " + caption, size)
+        self.resolution.lineEdit().setPlaceholderText("Ex.: 3440x1440")
+        self.artifacts = QCheckBox("Verificar imagens e padrão gráfico conhecido")
+        self.artifacts.setChecked(True)
+        self.vram_mb = QSpinBox()
+        self.vram_mb.setRange(16, 16384)
+        self.vram_mb.setSingleStep(64)
+        self.vram_mb.setValue(512)
+        self.vram_mb.setSuffix(" MiB")
+        self.vram_auto = QCheckBox("Usar a disponível com reserva · até 16 GiB")
         self.gpu_profile = QComboBox()
         for label, value in (("Geometria · shader leve", "geometry"), ("Equilibrado · cena e iluminação", "balanced"),
                              ("Shader intenso · mais cálculo por pixel", "shader")):
@@ -73,14 +89,17 @@ class StressPanel(QWidget):
             field.setValue(value)
             field.setSuffix(" °C")
         for caption, field in (("Componente", self.kind), ("Duração da carga", self.duration),
-                               ("Intensidade solicitada", self.intensity), ("Resolução GPU", self.resolution),
-                               ("Perfil GPU", self.gpu_profile), ("Processos CPU", self.workers),
+                               ("Intensidade solicitada", self.intensity), ("Teste GPU", self.gpu_test),
+                               ("Resolução de renderização", self.resolution), ("Perfil GPU", self.gpu_profile),
+                               ("Verificação gráfica", self.artifacts), ("Memória da GPU a testar", self.vram_mb),
+                               ("Orçamento VRAM", self.vram_auto), ("Processos CPU", self.workers),
                                ("RAM a verificar (até 25% da disponível)", self.memory),
                                ("Parar na temperatura CPU", self.cpu_limit), ("Parar na temperatura GPU", self.gpu_limit)):
             form.addRow(caption, field)
         layout.addLayout(form)
         note = QLabel("Os percentuais controlam o trabalho solicitado, não garantem uso medido exato. "
-                      "GPU requer OpenGL 3.2 e janela visível; o driver escolhe o adaptador. Não há detector de artefatos/VRAM. "
+                      "GPU requer OpenGL 3.2; a janela é uma prévia da resolução fixa escolhida. "
+                      "A verificação cobre as imagens e os buffers acessíveis pelo driver; não toda a VRAM física. "
                       "Limites térmicos são precauções configuráveis e dependem de sensores atualizados.")
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -114,6 +133,8 @@ class StressPanel(QWidget):
         self.sampled.connect(self.on_sample)
         self.activity.changed.connect(self.update_state)
         self.kind.currentIndexChanged.connect(self.update_state)
+        self.gpu_test.currentIndexChanged.connect(self.update_state)
+        self.vram_auto.toggled.connect(self.update_state)
         self.timer = QTimer(self)
         self.timer.setInterval(250)
         self.timer.timeout.connect(self.poll)
@@ -134,11 +155,19 @@ class StressPanel(QWidget):
             field.setEnabled(available)
         self.workers.setEnabled(available and self.kind.currentData() == "cpu")
         self.memory.setEnabled(available and self.kind.currentData() == "memory")
-        for field in (self.resolution, self.gpu_profile, self.workers, self.memory):
-            visible = self.kind.currentData() == ("cpu" if field is self.workers else "memory" if field is self.memory else "gpu")
+        gpu = self.kind.currentData() == "gpu"
+        scene = gpu and self.gpu_test.currentData() != "vram"
+        memory = gpu and self.gpu_test.currentData() in ("vram", "combined")
+        fields = ((self.workers, self.kind.currentData() == "cpu"), (self.memory, self.kind.currentData() == "memory"),
+                  (self.gpu_test, gpu), (self.resolution, scene), (self.gpu_profile, scene), (self.artifacts, scene),
+                  (self.vram_mb, memory), (self.vram_auto, memory))
+        for field, visible in fields:
             field.setVisible(visible)
-            self.form.labelForField(field).setVisible(visible)
+            label = self.form.labelForField(field)
+            if label:
+                label.setVisible(visible)
             field.setEnabled(available and visible)
+        self.vram_mb.setEnabled(available and memory and not self.vram_auto.isChecked())
 
     def request_start(self):
         if self.demo or self.activity.busy or self.inventory is None:
@@ -146,7 +175,10 @@ class StressPanel(QWidget):
         try:
             options = validate_options({"kind": self.kind.currentData(), "duration_s": self.duration.currentData(),
                 "workers": self.workers.value(), "memory_mb": self.memory.value(), "intensity": self.intensity.currentData(),
-                "resolution": self.resolution.currentData(), "gpu_profile": self.gpu_profile.currentData()})
+                "resolution": (self.resolution.currentData() if self.resolution.currentText() == self.resolution.itemText(self.resolution.currentIndex())
+                               else self.resolution.currentText()), "gpu_profile": self.gpu_profile.currentData(),
+                "gpu_test": self.gpu_test.currentData(), "gpu_artifacts": self.artifacts.isChecked(),
+                "gpu_vram_mb": 0 if self.vram_auto.isChecked() else self.vram_mb.value()})
         except (ValueError, OSError) as error:
             self.status.setText(str(error))
             return
@@ -158,6 +190,7 @@ class StressPanel(QWidget):
         try:
             self.activity.begin_capture("stress")
             self.options, self.reason, self.phase = options, "", "starting"
+            self.gpu_status = {}
             self.controller = StressController()
             self.thermal_coverage = {"cpu": 0, "gpu": 0}
             self.path = None
@@ -206,7 +239,8 @@ class StressPanel(QWidget):
         self.live.setPlainText(f"CPU: {sample.get('cpu_percent')}% · RAM: {sample.get('ram_percent')}%\n"
                                f"Temperatura CPU: {cpu if cpu is not None else 'N/D'} °C\n"
                                f"Temperatura GPU: {gpu if gpu is not None else 'N/D'} °C\n"
-                               "Sem sensor atualizado não há verificação da parada térmica correspondente.")
+                               "Sem sensor atualizado não há verificação da parada térmica correspondente."
+                               + ("\n\n" + gpu_result_text(self.gpu_status) if self.gpu_status else ""))
         if cpu is not None:
             self.thermal_coverage["cpu"] += 1
         if gpu is not None:
@@ -241,6 +275,10 @@ class StressPanel(QWidget):
             result.update(state="failed" if result.get("state") == "failed" else "stopped", reason=self.reason)
         result["stop_limits"] = {"cpu_c": self.cpu_limit.value(), "gpu_c": self.gpu_limit.value()}
         result["thermal_readings"] = dict(self.thermal_coverage)
+        if self.controller.path:
+            result["evidence_folder"] = self.controller.path.name
+        if result.get("kind") == "gpu":
+            self.gpu_status = result
         write_json(self.path / "stress.json", result)
         self.phase, self.next_phase = "recovery", time.monotonic() + 5
         self.status.setText("Carga encerrada · registrando 5 s de recuperação…")
@@ -257,6 +295,8 @@ class StressPanel(QWidget):
                 self.phase = "working"
             elif self.phase == "working":
                 status = self.controller.status()
+                if self.options["kind"] == "gpu":
+                    self.gpu_status = status
                 text = f"Carga {self.options['kind']} · {status.get('elapsed_s', 0):.0f} / {self.options['duration_s']} s"
                 if isinstance(status.get("fps"), (int, float)):
                     text += f" · {status['fps']:.1f} FPS · P95 {status.get('frametime_p95_ms', 0):.1f} ms · P99 {status.get('frametime_p99_ms', 0):.1f} ms"
@@ -264,6 +304,10 @@ class StressPanel(QWidget):
                 if self.last_sample_at is not None and time.monotonic() - self.last_sample_at > 5:
                     self.request_stop("Monitor sem leituras atualizadas")
                 if self.controller.process.poll() is not None:
+                    if self.controller.process.returncode and status.get("state") not in ("running", "failed", None):
+                        status = {**status, "state": "failed",
+                                  "verification_status": "failed" if status.get("errors") else "partial",
+                                  "reason": f"Auxiliar encerrou com código {self.controller.process.returncode}; resultado final incompleto."}
                     if not status or status.get("state") == "running":
                         status = {"kind": self.options["kind"], "state": "failed", "errors": None, "elapsed_s": 0,
                                   "reason": f"Processo encerrou sem resultado válido; código {self.controller.process.returncode}."}

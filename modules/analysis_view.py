@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
     QLineEdit, QPlainTextEdit, QMessageBox, QAbstractItemView, QToolTip)
 
 from modules.ai_summary import AISummaryPanel
+from modules.gpu_results import gpu_result_text
 from modules.advanced_analysis import readable_report
 from modules.analysis import (analyze_session, save_report, report_text, ranked_processes,
                               display_time, fmt, AnalysisCancelled, export_metrics)
@@ -399,7 +400,7 @@ class AnalysisPanel(QWidget):
                 lines += [f"Adaptador: {stress.get('renderer', 'N/D')}",
                           f"{fmt(stress.get('fps'))} FPS · P95 {fmt(stress.get('frametime_p95_ms'), ' ms')} · "
                           f"P99 {fmt(stress.get('frametime_p99_ms'), ' ms')}",
-                          str(stress.get("frametime_method") or "")]
+                          str(stress.get("frametime_method") or ""), gpu_result_text(stress)]
         self.triage_text.setPlainText("\n".join(lines))
         fill(self.pressure_table, [[r["name"], fmt(r["p95"], "%"),
                                    fmt(r["high_seconds"], " s") if r["count"] else "N/D",
