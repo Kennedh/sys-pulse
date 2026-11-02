@@ -68,7 +68,22 @@ A comparação 3D detecta divergências entre duas imagens do mesmo instante; um
 
 A carga solicita parada na primeira divergência detectada. Exemplos e PNGs são limitados; não há gravação contínua de vídeo. Leitura de imagens e buffers usa CPU, tráfego e sincronização e interfere no frametime. Os contadores informam esse custo. Divergência localiza evidência no caminho gráfico; isoladamente não identifica GPU, RAM, driver ou outra peça como causa.
 
-As validações de empacotamento e os quatro ambientes nativos são registradas após concluir os respectivos builds.
+## Builds nativos e publicação
+
+O workflow [41369729220](https://github.com/Kennedh/sys-pulse/actions/runs/41369729220), da tag v3.4.0 no commit b627eaf, concluiu os quatro builds e a publicação:
+
+| Ambiente | Testes | Pacote nativo |
+|---|---|---|
+| Windows x64 | 270 passaram | ZIP, abertura, CPU/RAM e instalação/desinstalação em pasta personalizada |
+| Linux x64 | 269 passaram, um exclusivo de Windows não aplicável | TAR.GZ, abertura, CPU/RAM e instalador em pasta personalizada |
+| macOS Apple Silicon | 269 passaram, um exclusivo de Windows não aplicável | DMG, PKG, abertura e CPU/RAM |
+| macOS Intel | 269 passaram, um exclusivo de Windows não aplicável | DMG, PKG, abertura e CPU/RAM |
+
+A [release 3.4.0](https://github.com/Kennedh/sys-pulse/releases/tag/v3.4.0) está pública e marcada como latest, com oito pacotes e SHA256SUMS.txt. Os oito checksums do manifesto foram comparados aos digests dos assets retornados pelo GitHub.
+
+O instalador Windows publicado tem 37.848.462 bytes e o ZIP portátil, 54.491.400 bytes. Nos três testes curtos do executável local, result.json ficou entre 1637 e 2434 bytes; imagens são geradas somente em divergência. Esses tamanhos não representam uma captura completa de recursos.
+
+Os runners verificam empacotamento e funcionamento básico. A verificação física OpenGL foi executada somente na RTX 3050 Windows descrita acima; não foi repetida em GPU real nos outros sistemas.
 
 ## Referências da implementação
 
